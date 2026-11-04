@@ -1,0 +1,54 @@
+/* Mọi màu giao diện khai báo tại đây, để thay nhanh khi có mã màu chính thức của khách hàng. Mã hiện là tạm.
+   Màu thương hiệu không dùng trong lưới và ngăn duyệt: vàng ánh kim dễ nhầm với vàng tin cậy. */
+:root {
+  --navy: #0b2545;
+  --navy-2: #1b3a6b;
+  --navy-light: #e9edf4;
+  --gold-line: #c5a572;
+  --text: #1f2933;
+  --text-muted: #52606d;
+  --surface: #ffffff;
+  --border: #d5dbe3;
+  --danger-bg: #fbdddd;
+  --danger-line: #c62828;
+  --notice-bg: #f3f6fa;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { font-family: "Segoe UI", Arial, sans-serif; font-size: 14px; color: var(--text); background: var(--surface); overflow: hidden; }
+
+.app { display: flex; flex-direction: column; height: 100%; }
+.topbar { height: 48px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: var(--navy); color: #fff; border-bottom: 2px solid var(--gold-line); }
+.logo { width: 32px; height: 32px; border: 1px dashed rgba(255, 255, 255, .5); border-radius: 4px; }
+.doc-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.doc-state { opacity: .85; white-space: nowrap; }
+
+.body { flex: 1; min-height: 0; display: flex; }
+.sidebar { width: 72px; flex: none; background: var(--navy-light); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding-top: 8px; }
+.side-btn { background: none; border: 0; padding: 10px 2px; cursor: pointer; color: var(--text); font: inherit; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.side-btn:hover, .side-btn:focus-visible { background: #d9e0ea; }
+.side-btn svg { width: 22px; height: 22px; stroke: var(--navy); fill: none; stroke-width: 1.8; }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.grid-host { flex: 1; min-height: 0; position: relative; }
+
+.welcome { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px; text-align: center; }
+.welcome h1 { font-size: 20px; margin: 0; color: var(--navy); }
+.welcome p { margin: 0; color: var(--text-muted); max-width: 520px; }
+
+.btn { background: var(--navy); color: #fff; border: 0; border-radius: 4px; padding: 8px 16px; font: inherit; cursor: pointer; }
+.btn:hover { filter: brightness(1.08); }
+.btn-plain { background: none; border: 0; color: var(--navy-2); text-decoration: underline; cursor: pointer; font: inherit; padding: 0 4px; }
+
+.notices { flex: none; display: flex; flex-direction: column; }
+.notice { display: flex; align-items: flex-start; gap: 8px; padding: 6px 12px; background: var(--notice-bg); border-bottom: 1px solid var(--border); }
+.notice.warn { background: #fdf3e0; }
+.notice.error { background: var(--danger-bg); border-bottom-color: var(--danger-line); }
+.notice-text { flex: 1; }
+.place-list { margin: 4px 0 0; padding: 0; list-style: none; max-height: 160px; overflow: auto; }
+.reopen { flex: none; padding: 2px 12px; border-bottom: 1px solid var(--border); background: var(--notice-bg); }
+
+.progress { flex: none; height: 4px; background: var(--navy-light); overflow: hidden; }
+.progress::after { content: ""; display: block; height: 100%; width: 35%; background: var(--navy-2); animation: slide 1.2s infinite linear; }
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }

@@ -1,0 +1,27 @@
+# Commit đầu tiên (Q60, Q74). Dòng thường là đường dẫn được đưa vào, dòng bắt đầu bằng ! là loại ra.
+# Kho còn công khai nên không gồm: chat_log.md, customer_versions.txt, output_natural.txt, project_requirement.txt, docs/, spikes/.
+.dockerignore
+.gitignore
+CLAUDE.md
+compose.yaml
+README.md
+backend/
+frontend/
+workers/
+vmai/
+tests/
+tools/
+fixtures/
+
+# Phần M2 đang làm, chưa nối vào app: không vào commit M1.
+!workers/libreoffice/
+!workers/reader/reader/writer.py
+!workers/reader/reader/xlsxpatch.py
+!workers/reader/tests/test_writer.py
+!tools/excel_check/q48_check.py
+!tools/excel_check/results/q48*.json
+
+# Q81: luồng ảnh chưa phát hành, AI Engineer giữ ngoài commit đầu.
+!vmai/src/vmai/ocr.py
+!vmai/src/vmai/table_read.py
+!vmai/eval/run_images.py

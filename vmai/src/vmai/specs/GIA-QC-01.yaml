@@ -1,0 +1,58 @@
+# Mô tả biểu mẫu QC giả GIA-QC-01. [MẪU GIẢ] Giả định của đội, chưa được chuyên môn xác nhận.
+spec_id: GIA-QC-01
+version: 1
+
+table:
+  sheet: KQ_QC_Thang
+  anchor: A6
+  header_rows: [6, 7]
+  first_row: 8
+  last_row: 37
+  key_columns:
+    - {column: A, dim: date, kind: date_sequence, start_cell: B4}
+  value_columns:
+    - {column: B, field: result, dims: {code: GLU, level: "1"}}
+    - {column: C, field: result, dims: {code: GLU, level: "2"}}
+    - {column: D, field: result, dims: {code: CHOL, level: "1"}}
+    - {column: E, field: result, dims: {code: CHOL, level: "2"}}
+    - {column: F, field: result, dims: {code: ALT, level: "1"}}
+    - {column: G, field: result, dims: {code: ALT, level: "2"}}
+  # Người chạy là thông tin về con người: nhân viên tự viết, AI không đề xuất.
+  manual_columns: [H]
+
+date_fields: [date]
+period: {cell: B4, field: date}
+unit_field: unit
+lot_field: lot
+
+source_fields:
+  date: {names: ["Ngày chạy"], aliases: ["Ngày", "Ngay XN", "Date"], required: true}
+  code: {names: ["Mã XN"], aliases: ["Tên XN", "Xét nghiệm", "Test"], required: true}
+  level: {names: ["Mức"], aliases: ["Level", "Mức QC"], required: true}
+  result: {names: ["Kết quả"], aliases: ["KQ", "Result", "Giá trị"], required: true}
+  unit: {names: ["Đơn vị"], aliases: ["DV", "Unit"]}
+  lot: {names: ["Lô"], aliases: ["Số lô", "Lot"]}
+
+# Bảng đồng nghĩa khai báo sẵn (Q16). Không có trong bảng thì hỏi người dùng.
+dim_values:
+  code:
+    GLU: ["GLU", "Glucose"]
+    CHOL: ["CHOL", "Cholesterol"]
+    ALT: ["ALT"]
+  level:
+    "1": ["L1", "Mức 1", "1"]
+    "2": ["L2", "Mức 2", "2"]
+dim_aliases:
+  code:
+    GLU: ["Đường huyết", "Glu máu"]
+    CHOL: ["Mỡ máu toàn phần"]
+    ALT: ["GPT"]
+
+limits:
+  sheet: GioiHan
+  first_row: 2
+  dims: {code: A, level: C}
+  target: E
+  sd: F
+  unit: K
+  lot: D

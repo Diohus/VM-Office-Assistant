@@ -1,0 +1,48 @@
+# Đổi provider, model bằng file này hoặc biến môi trường VMAI_LLM_PROFILE.
+# Khả năng: "yes", "no", hoặc "unverified". unverified bị chặn như no cho tới khi xác minh.
+active: openai-luna
+
+profiles:
+  openai-luna:
+    provider: openai
+    model: gpt-6-luna
+    api_key_env: OPENAI_API_KEY
+    # Giá chính thức chưa xác minh, nên có trần tiền là chưa gọi được: điền giá ở bước xác minh.
+    budget: {max_tokens_per_run: 200000, max_usd_per_run: 1.0}
+    capabilities:
+      image_input: unverified
+      tool_calls: unverified
+      structured_output: unverified
+
+  claude:
+    provider: anthropic
+    model: claude-opus-5-5
+    api_key_env: ANTHROPIC_API_KEY
+    budget: {max_tokens_per_run: 200000, max_usd_per_run: 1.0}
+    capabilities:
+      # Tài liệu hãng có các khả năng này, nhưng chưa gọi thử trong dự án.
+      image_input: unverified
+      tool_calls: unverified
+      structured_output: unverified
+
+  openrouter:
+    provider: openrouter
+    # PM chốt đúng một ID, không dùng tự chọn. Để trống thì load_profile báo lỗi.
+    model: null
+    api_key_env: OPENROUTER_API_KEY
+    budget: {max_tokens_per_run: 200000, max_usd_per_run: 1.0}
+    # Mặc định trong code: allow_fallbacks false, data_collection deny, require_parameters true.
+    # Model miễn phí có thể giữ dữ liệu. Không dùng với dữ liệu thật (Q55).
+    routing: {}
+    capabilities:
+      image_input: unverified
+      tool_calls: unverified
+      structured_output: unverified
+
+  fake:
+    provider: fake
+    model: fake-1
+    capabilities:
+      image_input: "yes"
+      tool_calls: "yes"
+      structured_output: "yes"

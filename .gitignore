@@ -1,0 +1,23 @@
+# M0 spikes/editor
+spikes/editor/.venv/
+spikes/editor/grid/node_modules/
+spikes/editor/work/
+spikes/editor/grid/public/data/
+__pycache__/
+.pytest_cache/
+~$*
+.env
+.env.*
+
+# Lát 1
+.env
+.local/
+**/.venv/
+**/node_modules/
+frontend/dist/
+tools/excel_check/work/
+fixtures/generated/
+tests/integration/out/
+
+# Bản lỗi cũ, xem fixtures/templates/README.md (Q60)
+fixtures/templates/GIA-KHO-02_kho.xlsx

@@ -1,0 +1,41 @@
+{
+ "image": "vm-lo:trixie",
+ "version": "LibreOffice 25.2.3.2 520(Build:2)",
+ "xls_convert": {
+  "rc": 0,
+  "seconds": 1.4,
+  "err": "Warning: failed to launch javaldx - java may not function correctly\n"
+ },
+ "doc_convert": {
+  "rc": 0,
+  "seconds": 1.3,
+  "err": "Warning: failed to launch javaldx - java may not function correctly\n"
+ },
+ "xls_open_error": "open-failed: (-2147352567, 'Exception occurred.', (0, 'Microsoft Excel', 'Open method of Workbooks class failed', 'xlmain11.chm', 0, -2146827284), None)",
+ "excel_saveas_open_error": null,
+ "excel_saveas_diff": {
+  "sheets_a": [
+   "KQ_QC_Thang",
+   "GioiHan",
+   "Bieu_do",
+   "Huong_dan"
+  ],
+  "sheets_b": [
+   "KQ_QC_Thang",
+   "GioiHan",
+   "Bieu_do",
+   "Huong_dan"
+  ],
+  "cell_diff": 0,
+  "samples": [],
+  "other": {}
+ },
+ "doc_open": {
+  "open_error": null,
+  "paragraphs": 12,
+  "tables": 1,
+  "first_style": "Heading 1",
+  "first_text": "[MẪU GIẢ] QUY TRÌNH VẬN HÀNH MÁY GIẢ A\r",
+  "footer": "[MẪU GIẢ] Chân trang\r"
+ }
+}

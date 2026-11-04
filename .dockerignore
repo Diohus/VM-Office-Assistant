@@ -1,0 +1,11 @@
+*
+!backend/
+!workers/reader/
+!vmai/src/vmai/
+!frontend/
+**/.venv
+**/node_modules
+**/__pycache__
+**/*.egg-info
+**/dist
+workers/reader/tests

@@ -1,0 +1,67 @@
+{
+ "names": [
+  "<definedName function=\"false\" hidden=\"false\" localSheetId=\"0\" name=\"_xlnm.Print_Area\" vbProcedure=\"false\">KQ_QC_Thang!$A$1:$I$46</definedName>",
+  "<definedName function=\"false\" hidden=\"false\" name=\"_xlfn_IFERROR\" vbProcedure=\"false\"></definedName>"
+ ],
+ "names_in_xls": [
+  [
+   "_xlfn.IFERROR",
+   "=#NAME?"
+  ],
+  [
+   "KQ_QC_Thang!Print_Area",
+   "=KQ_QC_Thang!$A$1:$I$46"
+  ]
+ ],
+ "bad": [
+  {
+   "bo": "<definedName function=\"false\" hidden=\"false\" localSheetId=\"0\" name=\"_xlnm.Print_Area\" vbProcedure=\"false\">KQ_QC_Thang!$A$1:$I$46</definedName>",
+   "mo_duoc": false
+  },
+  {
+   "bo": "<definedName function=\"false\" hidden=\"false\" name=\"_xlfn_IFERROR\" vbProcedure=\"false\"></definedName>",
+   "mo_duoc": true
+  }
+ ],
+ "fixed_open_error": null,
+ "fixed_names": [
+  [
+   "_xlfn.IFERROR",
+   "=#NAME?"
+  ],
+  [
+   "KQ_QC_Thang!Print_Area",
+   "=KQ_QC_Thang!$A$1:$I$46"
+  ]
+ ],
+ "fixed_diff": {
+  "sheets_a": [
+   "KQ_QC_Thang",
+   "GioiHan",
+   "Bieu_do",
+   "Huong_dan"
+  ],
+  "sheets_b": [
+   "KQ_QC_Thang",
+   "GioiHan",
+   "Bieu_do",
+   "Huong_dan"
+  ],
+  "cell_diff": 0,
+  "samples": [],
+  "other": {
+   "GioiHan.width_B": [
+    8.1,
+    8.3
+   ],
+   "Bieu_do.width_B": [
+    8.1,
+    8.3
+   ],
+   "Huong_dan.width_B": [
+    8.1,
+    8.3
+   ]
+  }
+ }
+}

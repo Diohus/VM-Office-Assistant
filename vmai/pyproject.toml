@@ -1,0 +1,31 @@
+[project]
+name = "vmai"
+version = "0.1.0"
+description = "Lớp AI của VM-Office-Assistant: đọc nguồn, ghép ô, tính màu, tạo đề xuất. Không ghi file, không chạm cơ sở dữ liệu."
+requires-python = ">=3.11"
+dependencies = [
+    "openpyxl>=3.1.5,<4",
+    "defusedxml>=0.7.1,<1",
+    "pydantic>=2.14,<3",
+    "pyyaml>=6.0.3,<7",
+]
+
+[project.optional-dependencies]
+llm = ["openai>=3.42,<4", "anthropic>=2.4,<3"]
+pdf = ["pdfplumber>=0.11.10,<1"]
+ocr = ["rapidocr-onnxruntime>=1.4.4,<2", "opencv-python-headless>=4.10", "pillow>=11", "pypdfium2>=5,<6"]
+dev = ["pytest>=9,<10", "pip-audit>=2.9,<3", "truststore>=0.10,<1", "python-docx>=1.2,<2"]
+
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+vmai = ["config/*.yaml", "specs/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore:.*extension is not supported.*:UserWarning"]

@@ -1,0 +1,2 @@
+/* Nút danh sách sheet của thư viện liệt kê cả sheet ẩn và mở hộp thoại riêng, nên không hiện cho người dùng. */
+[data-u-comp="sheet-bar-append-button"] { display: none !important; }

@@ -1,0 +1,189 @@
+"""Chấm vmai trên fixtures/eval/generated/xlsx và trên fixture của Dev. In bảng, lưu vmai/out/eval_xlsx.json.
+
+Không gọi mạng. Provider giả chỉ kiểm dữ liệu đi ra, không phải kết quả chất lượng.
+"""
+from __future__ import annotations
+
+import json
+import sys
+from collections import Counter
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+
+import vmai
+from vmai import MissingFields, SourceFileError, load_spec, plan_headers, propose, read_form, read_source
+from vmai.profile import TemplateProfile
+
+ROOT = Path(__file__).resolve().parents[2]
+GENERATED = ROOT / "fixtures" / "eval" / "generated"
+CASE_DIRS = (GENERATED / "xlsx", GENERATED / "xlsx_lat1")
+TEMPLATES = ROOT / "fixtures" / "templates"
+SPECS = Path(vmai.__file__).parent / "specs"
+OUT = ROOT / "vmai" / "out"
+SPEC = load_spec(SPECS / "GIA-QC-01.yaml")
+
+
+def load_profile(answer: dict, fingerprint: str) -> TemplateProfile | None:
+    raw = answer.get("profile")
+    if not raw:
+        return None
+    return TemplateProfile(
+        profile_id=raw["profile_id"],
+        version=raw["version"],
+        structure_fingerprint=fingerprint,
+        source_headers=tuple(raw["source_headers"]),
+        column_map=raw["column_map"],
+        dim_maps={"code": raw["test_map"], "level": raw["level_map"]},
+        confirmed_by=raw["confirmed_by"],
+        confirmed_at=raw["confirmed_at"],
+    )
+
+
+def _same(a: str | None, b: str | None) -> bool:
+    if a is None or b is None:
+        return False
+    try:
+        return Decimal(a) == Decimal(b)
+    except InvalidOperation:
+        return a == b
+
+
+def score(batch, answer: dict) -> dict:
+    # Đáp án cũ có cột Người chạy (H). Theo quy tắc mới AI không điền cột này, nên đề xuất ở H tính là sai.
+    gold = {c["a1"]: c for c in answer.get("cells", []) if not c["a1"].startswith("H")}
+    by_color: Counter[str] = Counter()
+    errors: Counter[str] = Counter()
+    mismatches, samples = [], []
+    proposed = set()
+    for change in batch.changes:
+        a1, color = change.target.a1_at_write, change.confidence.final_color.value
+        proposed.add(a1)
+        by_color[color] += 1
+        expected = gold.get(a1)
+        value = change.value.normalized if change.value else None
+        if expected is None:
+            correct = False
+        elif expected.get("accept_values"):
+            correct = any(_same(value, v) for v in expected["accept_values"])
+        elif expected.get("value") is None:
+            correct = color == "red"  # đáp án là không có giá trị đúng để tự điền; chỉ đỏ là chấp nhận được
+        else:
+            correct = _same(value, expected["value"])
+        if not correct:
+            errors[color] += 1
+            samples.append({"a1": a1, "got": value, "want": expected.get("value") if expected else None, "color": color})
+        if expected is not None and color != expected.get("expected_color"):
+            mismatches.append({"a1": a1, "got": color, "want": expected.get("expected_color")})
+    notices = {n.reason for n in batch.notices}
+    return {
+        "case": answer["case"],
+        "proposals": len(batch.changes),
+        "missed": len(set(gold) - proposed),
+        "errors": sum(errors.values()),
+        "by_color": dict(by_color),
+        "errors_by_color": dict(errors),
+        "color_mismatches": mismatches,
+        "samples": samples[:5],
+        "missing_notices": [n for n in answer.get("expected_notices", []) if n not in notices],
+        "no_proposal_ok": (not answer.get("expect_no_proposal")) or not batch.changes,
+    }
+
+
+def run_case(directory: Path, **options) -> dict:
+    answer = json.loads((directory / "answer.json").read_text(encoding="utf-8"))
+    form = read_form(directory / "template.xlsx", SPEC)
+    source = read_source(directory / "source.xlsx")
+    plan = plan_headers(form, source, load_profile(answer, form.fingerprint))
+    if answer.get("expected_error"):
+        try:
+            propose(form, source, plan)
+        except MissingFields as exc:
+            return {"case": answer["case"], "proposals": 0, "missed": 0, "errors": 0, "by_color": {}, "errors_by_color": {}, "color_mismatches": [], "samples": [], "missing_notices": [] if exc.code == answer["expected_error"] else [answer["expected_error"]], "no_proposal_ok": True}
+    return score(propose(form, source, plan, **options), answer)
+
+
+def q30_matrix() -> list[dict]:
+    """Q30: so giữ Q17 và nới Q17 trên các biến thể đảo hai cột khác đơn vị, miền chồng."""
+    rows = []
+    for directory in sorted((GENERATED / "xlsx_lat1").glob("X20_*")):
+        for label, options in (("Giữ Q17", {}), ("Nới Q17", {"measure_relax_units": True})):
+            r = run_case(directory, **options)
+            rows.append({"case": directory.name, "config": label, "errors": r["errors"], "by_color": r["by_color"], "errors_by_color": r["errors_by_color"]})
+    return rows
+
+
+def summarize(results: list[dict]) -> dict:
+    totals, errors = Counter(), Counter()
+    for r in results:
+        totals.update(r["by_color"])
+        errors.update(r["errors_by_color"])
+    green = totals["green"]
+    return {
+        "proposals": sum(totals.values()),
+        "green": green,
+        "yellow": totals["yellow"],
+        "red": totals["red"],
+        "false_green": errors["green"],
+        # Quy tắc ba: khi 0 lỗi, cận trên độ tin cậy 95% xấp xỉ 3/N.
+        "false_green_upper_95": (3 / green) if green and not errors["green"] else None,
+        "errors_yellow": errors["yellow"],
+        "errors_red": errors["red"],
+    }
+
+
+def dev_fixtures() -> dict:
+    """Chạy trên file do Excel thật lưu của Dev. Có file thì chạy, không có thì báo."""
+    out: dict = {}
+    if not TEMPLATES.exists():
+        return {"skipped": "không có fixtures/templates"}
+    form = read_form(TEMPLATES / "GIA-QC-01_mau.xlsx", SPEC)
+    source = read_source(TEMPLATES / "GIA-NGUON_2026-09.xlsx")
+    batch = propose(form, source, plan_headers(form, source))
+    colors = Counter(c.confidence.final_color.value for c in batch.changes)
+    out["GIA-QC-01_mau + GIA-NGUON"] = {"proposals": len(batch.changes), "by_color": dict(colors), "notices": sorted({n.reason for n in batch.notices})}
+    for name, code in (("GIA-X19_co_mat_khau.xlsx", "FILE_PASSWORD"), ("GIA-QC-01_da_dien_doi_cu.xls", "FILE_LEGACY_XLS"), ("GIA-X19_hong.xlsx", "FILE_CORRUPT")):
+        try:
+            read_source(TEMPLATES / name)
+            out[name] = {"expected": code, "got": "NO_ERROR", "ok": False}
+        except SourceFileError as exc:
+            out[name] = {"expected": code, "got": exc.code, "ok": exc.code == code}
+    macro = read_source(TEMPLATES / "GIA-X19_khong_co_vba.xlsm")
+    out["GIA-X19_khong_co_vba.xlsm"] = {"has_macros_flag": macro.has_macros}
+
+    kho = load_spec(SPECS / "GIA-KHO-02.yaml")
+    form = read_form(TEMPLATES / "GIA-KHO-02_tieu_hao.xlsx", kho)
+    out["GIA-KHO-02 mô tả"] = {"rows": len(form.rows), "columns": [(c.letter, list(c.col_path)) for c in form.columns], "existing": len(form.existing)}
+    return out
+
+
+def main() -> None:
+    OUT.mkdir(exist_ok=True)
+    results = [run_case(d) for base in CASE_DIRS for d in sorted(base.iterdir()) if d.is_dir() and d.name != "X19"]
+    print(f"{'case':30}{'đề xuất':>8}{'sai':>5}{'xanh':>6}{'vàng':>6}{'đỏ':>5}{'sai-xanh':>9}{'lệch màu':>9}  notice thiếu")
+    for r in results:
+        by = r["by_color"]
+        print(
+            f"{r['case']:30}{r['proposals']:>8}{r['errors']:>5}{by.get('green', 0):>6}{by.get('yellow', 0):>6}{by.get('red', 0):>5}"
+            f"{r['errors_by_color'].get('green', 0):>9}{len(r['color_mismatches']):>9}  {','.join(r['missing_notices'])}"
+        )
+    regular = [r for r in results if not r["case"].startswith("X20")]
+    wrong_profile = [r for r in results if r["case"].startswith("X20")]
+    summary = {"regular": summarize(regular), "x20": summarize(wrong_profile)}
+    print("\nKhông tính X20:", json.dumps(summary["regular"], ensure_ascii=False))
+    print("Chỉ X20:", json.dumps(summary["x20"], ensure_ascii=False))
+    matrix = q30_matrix()
+    print("\nQ30:")
+    for row in matrix:
+        e = row["errors_by_color"]
+        print(f"{row['case']:32}{row['config']:10} sai={row['errors']:>4} sai-xanh={e.get('green', 0):>4} sai-vàng={e.get('yellow', 0):>4} sai-đỏ={e.get('red', 0):>4}")
+    fixtures = dev_fixtures()
+    print("\nFixture của Dev:", json.dumps(fixtures, ensure_ascii=False))
+    (OUT / "eval_xlsx.json").write_text(json.dumps({"cases": results, "summary": summary, "q30": matrix, "dev_fixtures": fixtures}, ensure_ascii=False, indent=1), encoding="utf-8")
+    bad = [r["case"] for r in regular if r["color_mismatches"] or r["missing_notices"] or not r["no_proposal_ok"] or r["errors"]]
+    bad += [r["case"] for r in wrong_profile if r["errors_by_color"].get("green", 0)]
+    print("\nCó vấn đề:", bad or "không")
+    sys.exit(1 if bad else 0)
+
+
+if __name__ == "__main__":
+    main()

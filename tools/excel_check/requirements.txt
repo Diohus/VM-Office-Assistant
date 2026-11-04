@@ -1,0 +1,3 @@
+# Chỉ để đối chiếu với Excel thật trên máy Windows. Không vào sản phẩm.
+lxml==6.1.3
+pywin32==312

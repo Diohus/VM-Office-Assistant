@@ -1,0 +1,19 @@
+# Mô tả biểu mẫu tiêu hao giả GIA-KHO-02: bố cục khác hẳn GIA-QC-01, để chứng minh code không gắn cứng.
+# [MẪU GIẢ] Giả định của đội, chưa được chuyên môn xác nhận.
+spec_id: GIA-KHO-02
+version: 1
+
+table:
+  sheet: Tieu hao
+  anchor: A3
+  header_rows: [3]
+  first_row: 4
+  last_row: 22
+  key_columns:
+    - {column: A, dim: item}
+  value_columns:
+    - {column: C, field: quantity}
+
+source_fields:
+  item: {names: ["Mã"], aliases: ["Mã vật tư", "Mã VT"], required: true}
+  quantity: {names: ["Số lượng"], aliases: ["SL", "Số lượng xuất"], required: true}
