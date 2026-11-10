@@ -568,6 +568,103 @@ def l28(values):
     save_case("L28_sai_thang", wb, lambda p: long_source(p, other), cells={}, expect="ask", note="Biểu mẫu tháng 9, nguồn tháng 10: không có ngày nào trùng")
 
 
+def _swapped_levels_case(name: str, tests, note: str, out_of_control=(), seed: int | None = None) -> None:
+    """T-AI-12: nguồn của hãng đánh số mức ngược (L1 của nguồn là mức cao). App hỏi "L1 có phải M1 không",
+    người dùng bấm nhầm "Cùng một thứ", nên mọi số vào nhầm mức. Có sheet giới hạn, để Q17 là thứ duy nhất chặn xanh.
+
+    out_of_control: (ngày, mã, mức, giá trị) là lần chạy QC hỏng thật, cố ý rơi vào miền giới hạn của mức kia.
+    """
+    rng = random.Random(1200 + len(name) if seed is None else seed)
+    true = {(d, code, level): round(rng.gauss(target, sd * 0.7), 2) for d in DAYS for code, _, level, target, sd in tests}
+    for d, code, level, value in out_of_control:
+        true[(d, code, level)] = value
+    source = {(d, code, "2" if level == "1" else "1"): v for (d, code, level), v in true.items()}
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    title(ws)
+    _wide_one_row(ws, 3, 1, true)
+    limits_sheet(wb, tests)
+    # cells rỗng: cách ghép sau câu trả lời là sai, nên mọi đề xuất là sai; xanh nào cũng là sai bị xanh.
+    save_case(name, wb, lambda p: long_source(p, source), cells={}, expect="ask", note=note)
+
+
+def l29():
+    tests = [("GLU", "Glucose", "1", 5.50, 0.10), ("GLU", "Glucose", "2", 6.20, 0.10), ("CHOL", "Cholesterol", "1", 3.00, 0.05), ("CHOL", "Cholesterol", "2", 3.40, 0.05)]
+    _swapped_levels_case("L29_bam_nham_muc_gan_nhau", tests, "Bấm nhầm Cùng một thứ, hai mức gần nhau, miền ±3SD không chồng (5,2-5,8 và 5,9-6,5)")
+
+
+def l30():
+    tests = [("GLU", "Glucose", "1", 5.50, 0.15), ("GLU", "Glucose", "2", 5.80, 0.15), ("CHOL", "Cholesterol", "1", 3.00, 0.08), ("CHOL", "Cholesterol", "2", 3.40, 0.08)]
+    _swapped_levels_case("L30_bam_nham_muc_chong_mot_phan", tests, "Bấm nhầm Cùng một thứ, miền ±3SD của hai mức chồng một phần")
+
+
+def l31():
+    tests = [("GLU", "Glucose", "1", 5.50, 0.10), ("GLU", "Glucose", "2", 6.11, 0.10), ("CHOL", "Cholesterol", "1", 3.00, 0.05), ("CHOL", "Cholesterol", "2", 3.31, 0.05)]
+    bad_runs = [(DAYS[0], "GLU", "2", 5.75), (DAYS[1], "GLU", "2", 5.70), (DAYS[0], "CHOL", "2", 3.12), (DAYS[1], "CHOL", "2", 3.10)]
+    _swapped_levels_case("L31_bam_nham_muc_sat_nhau_qc_hong", tests,
+                         "Bấm nhầm Cùng một thứ, miền ±3SD sát nhau không chồng, có 4 lần QC hỏng của mức 2 rơi vào miền mức 1", bad_runs)
+
+
+def l32():
+    """Như L31 nhưng chỉ 3 ngày: cột quá ít ô nên CHECK_COLUMN_SUSPECT không bật. Trước Q114 có 4 ô sai bị xanh ở lần sau."""
+    global DAYS
+    full = DAYS
+    DAYS = full[:3]
+    try:
+        tests = [("GLU", "Glucose", "1", 5.50, 0.10), ("GLU", "Glucose", "2", 6.11, 0.10), ("CHOL", "Cholesterol", "1", 3.00, 0.05), ("CHOL", "Cholesterol", "2", 3.31, 0.05)]
+        bad_runs = [(DAYS[0], "GLU", "2", 5.75), (DAYS[1], "GLU", "2", 5.70), (DAYS[0], "CHOL", "2", 3.12), (DAYS[1], "CHOL", "2", 3.10)]
+        _swapped_levels_case("L32_bam_nham_muc_lo_3_ngay", tests,
+                             "Bấm nhầm Cùng một thứ, miền ±3SD sát nhau, 2/3 ngày QC mức 2 hỏng rơi vào miền mức 1, lô 3 ngày", bad_runs,
+                             seed=1200 + len("L31_bam_nham_muc_sat_nhau_qc_hong"))  # cùng số với lần thử phá đã báo PM
+    finally:
+        DAYS = full
+
+
+def _wide_machine_case(name: str, headers, right: str, expect: str, note: str) -> None:
+    """T-AI-13 (a): biểu mẫu ngang Ngày, Natri, Kali; nguồn ngang có thêm cột của máy thứ hai lệch khoảng 1%."""
+    rng = random.Random(1300)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    title(ws)
+    for i, text in enumerate(("Ngày", "Natri", "Kali")):
+        ws.cell(row=3, column=1 + i, value=text)
+    rows, cells = [], {}
+    for i, d in enumerate(DAYS):
+        ws.cell(row=4 + i, column=1, value=d).number_format = "dd/mm/yyyy"
+        na1 = round(rng.gauss(140, 1), 1)
+        na2 = round(na1 * (1 + rng.uniform(-0.01, 0.01)), 1)
+        na2 = na2 if na2 != na1 else round(na1 + 0.1, 1)
+        k = round(rng.gauss(4.0, 0.05), 2)
+        values = {"Natri máy 1": na1, "Natri": na1 if right == "Natri" else na2, "Natri máy 2": na2, "Kali": k}
+        if right == "Natri máy 1":
+            values["Natri"] = na2
+        rows.append([d, *(values[h] for h in headers[1:])])
+        cells[f"B{4 + i}"], cells[f"C{4 + i}"] = na1, k
+
+    def source(path):
+        src = openpyxl.Workbook()
+        sheet = src.active
+        sheet.append(list(headers))
+        for row in rows:
+            sheet.append(row)
+        for row in sheet.iter_rows(min_row=2, max_col=1):
+            row[0].number_format = "dd/mm/yyyy"
+        src.properties.title = "[MẪU GIẢ] Nguồn"
+        src.save(path)
+
+    save_case(name, wb, source, cells=cells, expect=expect, note=note)
+
+
+def l33():
+    _wide_machine_case("L33_ngang_may_1_ten_khac", ("Ngày", "Natri máy 1", "Natri", "Kali"), "Natri máy 1", "ask",
+                       "Nguồn ngang: máy 1 là 'Natri máy 1', máy 2 mang tên trần 'Natri'. Không được tự chọn cột tên trần mà không hỏi")
+
+
+def l34():
+    _wide_machine_case("L34_ngang_may_2_ten_khac", ("Ngày", "Natri", "Natri máy 2", "Kali"), "Natri", "ok_or_ask",
+                       "Nguồn ngang: 'Natri' là máy 1, có thêm 'Natri máy 2'. App không biết cột nào đúng, hỏi lại cũng được")
+
+
 def main() -> None:
     if OUT.exists():
         shutil.rmtree(OUT)
@@ -580,8 +677,13 @@ def main() -> None:
     for build in (l20, l21, l22, l23, l24, l25, l26, l27, l28):
         build(values)
     l19()
+    for build in (l29, l30, l31, l32, l33, l34):
+        build()
     print("Bố cục:", len(list(OUT.iterdir())))
 
 
 if __name__ == "__main__":
+    import sys
+
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     main()

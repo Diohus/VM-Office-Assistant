@@ -49,7 +49,6 @@ GENERATED = ROOT / "fixtures" / "eval" / "generated"
 TEMPLATES = ROOT / "fixtures" / "templates"
 SPECS = Path(vmai.__file__).parent / "specs"
 QC_SPEC = load_spec(SPECS / "GIA-QC-01.yaml")
-needs_fixtures = pytest.mark.skipif(not GENERATED.exists(), reason="Chưa tạo fixtures: chạy fixtures/eval/generate.py")
 
 
 # ---------- Chuẩn hóa số ----------
@@ -137,7 +136,6 @@ def _kho_source(path: Path, rows) -> None:
     wb.save(path)
 
 
-@pytest.mark.skipif(not (TEMPLATES / "GIA-KHO-02_tieu_hao.xlsx").exists(), reason="Thiếu fixture của Dev")
 def test_second_layout_uses_same_code(tmp_path):
     """GIA-KHO-02 có sheet, neo, khóa, một dòng tiêu đề và cột khác hẳn GIA-QC-01. Không có code riêng nào cho nó."""
     spec = load_spec(SPECS / "GIA-KHO-02.yaml")
@@ -174,7 +172,6 @@ def test_bad_spec_is_reported(broken):
     assert exc.value.code == "SPEC_INVALID"
 
 
-@needs_fixtures
 def test_spec_not_matching_file_is_reported():
     wrong = load_spec(SPECS / "GIA-KHO-02.yaml")
     with pytest.raises(TemplateSpecError) as exc:
@@ -209,7 +206,6 @@ def x01():
     return form, source, profile
 
 
-@needs_fixtures
 def test_reading_planning_proposing_use_no_network_and_write_nothing(x01, monkeypatch, tmp_path):
     form, _, profile = x01
     directory = GENERATED / "xlsx" / "X01_m0"
@@ -228,7 +224,6 @@ def test_reading_planning_proposing_use_no_network_and_write_nothing(x01, monkey
     assert {p: p.stat().st_mtime_ns for p in directory.iterdir()} == before
 
 
-@needs_fixtures
 def test_everything_crosses_services_as_json(x01):
     form, source, profile = x01
     form2 = FormFacts.model_validate_json(form.model_dump_json())
@@ -243,7 +238,6 @@ def test_everything_crosses_services_as_json(x01):
 
 
 # ---------- Hồ sơ ----------
-@needs_fixtures
 def test_profile_rules(x01):
     form, source, profile = x01
     numbers = lambda b: b.changes  # noqa: E731
@@ -264,7 +258,6 @@ def test_profile_rules(x01):
     assert not any(c.mapping.method.value == "profile" for c in stale.changes)
 
 
-@needs_fixtures
 def test_q17_stays_strict_unless_measuring():
     directory = GENERATED / "xlsx_lat1" / "X20_j_khac_don_vi_ghi_sai_dv"
     answer = json.loads((directory / "answer.json").read_text(encoding="utf-8"))
@@ -289,14 +282,12 @@ def _fake(payload, **kw):
     return create_provider(load_profile("fake"), handler=lambda req: LLMResponse("fake", "fake-1", text=json.dumps(payload)), **kw)
 
 
-@needs_fixtures
 def test_no_llm_call_when_required_fields_are_resolved():
     directory = GENERATED / "xlsx" / "X16"
     form, source = read_form(directory / "template.xlsx", QC_SPEC), read_source(directory / "source.xlsx")
     assert plan_headers(form, source).llm_headers == ()
 
 
-@needs_fixtures
 def test_x16b_x16c_header_injection_only_reaches_llm_as_data_and_output_is_bounded():
     directory = GENERATED / "xlsx_lat1" / "X16c"
     form, source = read_form(directory / "template.xlsx", QC_SPEC), read_source(directory / "source.xlsx")
@@ -311,7 +302,6 @@ def test_x16b_x16c_header_injection_only_reaches_llm_as_data_and_output_is_bound
         map_headers(_fake({"mappings": [{"source_header": injected, "field": "ghi_file"}]}), [injected], {"result": "Kết quả"})
 
 
-@needs_fixtures
 def test_map_headers_flows_into_proposal_as_yellow_and_sends_only_headers(tmp_path):
     directory = GENERATED / "xlsx" / "X01_m0"
     wb = openpyxl.load_workbook(directory / "source.xlsx")
@@ -337,7 +327,6 @@ def test_map_headers_flows_into_proposal_as_yellow_and_sends_only_headers(tmp_pa
     assert batch.llm_calls[0].purpose == "map_headers"
 
 
-@needs_fixtures
 def test_header_map_cannot_add_what_was_not_asked():
     directory = GENERATED / "xlsx" / "X02"
     form, source = read_form(directory / "template.xlsx", QC_SPEC), read_source(directory / "source.xlsx")
@@ -354,8 +343,6 @@ def test_phi_headers_are_never_candidates(tmp_path):
     wb.save(tmp_path / "a.xlsx")
     source = read_source(tmp_path / "a.xlsx")
     form_path = GENERATED / "xlsx" / "X01_m0" / "template.xlsx"
-    if not form_path.exists():
-        pytest.skip("Chưa tạo fixtures")
     plan = plan_headers(read_form(form_path, QC_SPEC), source)
     assert set(plan.phi_headers) == {"Họ và tên", "Mã BN"}
     assert plan.llm_headers == ("Trị số",)
@@ -376,16 +363,17 @@ def test_default_is_luna_and_config_switches(monkeypatch):
 
 def test_unverified_capability_and_missing_key_do_not_fall_back(monkeypatch):
     with pytest.raises(CapabilityError):
-        create_provider(load_profile("openai-luna")).generate(REQUEST)
+        create_provider(load_profile("claude")).generate(REQUEST)
     from dataclasses import replace
 
     from vmai.llm.budget import Budget, BudgetExceeded
 
     for name, env in (("openai-luna", "OPENAI_API_KEY"), ("claude", "ANTHROPIC_API_KEY")):
         monkeypatch.delenv(env, raising=False)
-        # Chưa có giá thì trần tiền chặn trước. Bỏ trần tiền thì tới bước thiếu key. Cả hai đều không gọi model.
-        with pytest.raises(BudgetExceeded):
-            create_provider(load_profile(name), allow_unverified=True).generate(REQUEST)
+        # Bỏ trần tiền hay không, thiếu key đều không gọi model.
+        if name == "claude":  # chưa có giá thì trần tiền chặn trước
+            with pytest.raises(BudgetExceeded):
+                create_provider(load_profile(name), allow_unverified=True).generate(REQUEST)
         tokens_only = replace(load_profile(name), budget=Budget(max_tokens_per_run=10**6))
         with pytest.raises(MissingAPIKey):
             create_provider(tokens_only, allow_unverified=True).generate(REQUEST)
@@ -440,7 +428,6 @@ def test_block_on_open_keeps_undeterminable_visible():
     assert not check_formula('=OFFSET(A1,1,1)').block_on_open
 
 
-@pytest.mark.skipif(not (TEMPLATES / "GIA-X18_ham_mang.xlsx").exists(), reason="Thiếu fixture của Dev")
 def test_x18_fixture_formulas_are_blocked():
     wb = openpyxl.load_workbook(TEMPLATES / "GIA-X18_ham_mang.xlsx", keep_links=False)
     risks = {
@@ -461,8 +448,6 @@ def test_x18_fixture_formulas_are_blocked():
 )
 def test_file_errors_on_real_fixtures(name, code):
     path = TEMPLATES / name
-    if not path.exists():
-        pytest.skip("Thiếu fixture của Dev")
     with pytest.raises(SourceFileError) as exc:
         read_source(path)
     assert exc.value.code == code
@@ -470,8 +455,6 @@ def test_file_errors_on_real_fixtures(name, code):
 
 def test_macro_file_is_flagged_not_run():
     path = TEMPLATES / "GIA-X19_khong_co_vba.xlsm"
-    if not path.exists():
-        pytest.skip("Thiếu fixture của Dev")
     assert read_source(path).has_macros
 
 
@@ -489,7 +472,6 @@ def _source(tmp_path, rows, formula_as_text=None):
     return read_source(tmp_path / "s.xlsx")
 
 
-@needs_fixtures
 def test_duplicate_source_column_is_red_not_silently_ignored(tmp_path):
     form = read_form(GENERATED / "xlsx" / "X01_m0" / "template.xlsx", QC_SPEC)
     source = _source(tmp_path, [["Ngày chạy", "Mã XN", "Mức", "Kết quả", "Kết quả"], ["01/09/2026", "GLU", "L1", 5.5, 5.6]])
@@ -506,7 +488,6 @@ def _category_spec():
     return load_spec(data)
 
 
-@needs_fixtures
 def test_text_that_looks_like_formula_is_red(tmp_path):
     form = read_form(GENERATED / "xlsx" / "X01_m0" / "template.xlsx", _category_spec())
     rows = [["Ngày chạy", "Mã XN", "Mức", "Kết quả", "Ghi chú"], ["01/09/2026", "GLU", "L1", 5.5, "Bình thường"]]
@@ -518,7 +499,6 @@ def test_text_that_looks_like_formula_is_red(tmp_path):
 
 
 # ---------- AI không điền thông tin về con người ----------
-@needs_fixtures
 def test_person_column_is_never_proposed_and_is_reported():
     directory = GENERATED / "xlsx" / "X01_m0"
     form, source = read_form(directory / "template.xlsx", QC_SPEC), read_source(directory / "source.xlsx")
@@ -541,7 +521,6 @@ def test_text_column_is_denied_by_default():
         load_spec(data)
 
 
-@needs_fixtures
 def test_spec_declaring_person_column_as_category_is_overruled(tmp_path):
     """Khai sai cột người là danh mục cũng không điền được, vì tiêu đề của file quyết định."""
     data = QC_SPEC.model_dump(mode="json")
@@ -553,7 +532,6 @@ def test_spec_declaring_person_column_as_category_is_overruled(tmp_path):
     assert not [c for c in form.columns if c.letter == "H"]
 
 
-@needs_fixtures
 def test_person_name_in_category_column_is_blocked_without_copying_it(tmp_path):
     form = read_form(GENERATED / "xlsx" / "X01_m0" / "template.xlsx", _category_spec())
     source = _source(tmp_path, [["Ngày chạy", "Mã XN", "Mức", "Kết quả", "Ghi chú"], ["01/09/2026", "GLU", "L1", 5.5, "Nguyễn Giả Một"]])
@@ -563,7 +541,6 @@ def test_person_name_in_category_column_is_blocked_without_copying_it(tmp_path):
     assert "Nguyễn Giả Một" not in batch.model_dump_json()
 
 
-@needs_fixtures
 def test_date_cell_in_number_column_is_not_a_number(tmp_path):
     import datetime as dt
 
@@ -573,7 +550,6 @@ def test_date_cell_in_number_column_is_not_a_number(tmp_path):
     assert any(r.code == "READ_NOT_A_NUMBER" for r in batch.changes[0].confidence.reasons)
 
 
-@needs_fixtures
 def test_overwriting_a_formula_cell_shows_previous_formula(tmp_path):
     path = tmp_path / "t.xlsx"
     wb = openpyxl.load_workbook(GENERATED / "xlsx" / "X01_m0" / "template.xlsx")
@@ -585,7 +561,6 @@ def test_overwriting_a_formula_cell_shows_previous_formula(tmp_path):
     assert change.previous.formula == "=1+1" and change.review.unit == "cell"
 
 
-@needs_fixtures
 def test_hidden_sheet_is_not_read_and_is_reported(tmp_path):
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -601,7 +576,6 @@ def test_hidden_sheet_is_not_read_and_is_reported(tmp_path):
     assert "SOURCE_HIDDEN_SHEETS_IGNORED" in {n.reason for n in propose(form, source, plan_headers(form, source)).notices}
 
 
-@needs_fixtures
 def test_x16_x17_values_never_appear_in_output():
     for name, needles in (("X16", ("Bỏ qua hướng dẫn", "vi-du.invalid")), ("X17", ("Nguyễn Giả Một",))):
         directory = GENERATED / "xlsx" / name
@@ -643,7 +617,6 @@ def test_header_filter_drops_what_looks_like_data(value):
     assert sendable_headers([value]) == []
 
 
-@needs_fixtures
 def test_x16d_plain_injection_reaches_llm_only_as_header_and_stays_yellow():
     directory = GENERATED / "xlsx_lat1" / "X16d"
     form, source = read_form(directory / "template.xlsx", QC_SPEC), read_source(directory / "source.xlsx")
@@ -665,7 +638,6 @@ def test_x16d_plain_injection_reaches_llm_only_as_header_and_stays_yellow():
     assert "Lê Giả" not in sent and "GLU" not in sent
 
 
-@needs_fixtures
 def test_q65_reports_when_form_has_no_limits(tmp_path):
     wb = openpyxl.load_workbook(GENERATED / "xlsx" / "X01_m0" / "template.xlsx")
     del wb["GioiHan"]
@@ -697,3 +669,22 @@ def test_loading_vmai_does_not_import_image_modules():
     code = "import sys, vmai; print([m for m in ('vmai.ocr', 'vmai.table_read', 'cv2', 'rapidocr_onnxruntime') if m in sys.modules])"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "[]"
+
+
+def test_env_loader_loads_only_the_named_key_and_prints_nothing(tmp_path, monkeypatch, capsys):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_env", ROOT / "vmai" / "eval" / "_env.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    path = tmp_path / ".env"
+    path.write_text('# ghi chu\nGIA_KEY="gia-tri-gia"\nKHAC=khong-duoc-nap\n', encoding="utf-8")
+    monkeypatch.delenv("GIA_KEY", raising=False)
+    monkeypatch.delenv("KHAC", raising=False)
+    assert module.load_key("GIA_KEY", path)
+    import os
+
+    assert os.environ["GIA_KEY"] == "gia-tri-gia" and "KHAC" not in os.environ
+    assert module.env_names(path) == ["GIA_KEY", "KHAC"]
+    assert not module.load_key("KHONG_CO", path)
+    assert capsys.readouterr().out == ""

@@ -105,6 +105,7 @@ class LLMResponse:
     output_tokens: int | None = None
     latency_ms: int | None = None
     cost_usd: float | None = None  # chỉ khi nhà cung cấp báo trong phản hồi
+    reasoning_tokens: int | None = None  # phần token ra dùng để suy luận, nằm trong output_tokens
 
     def parsed(self) -> Any:
         try:

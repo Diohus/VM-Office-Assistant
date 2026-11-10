@@ -113,4 +113,5 @@ class OpenAIProvider(LLMProvider):
             input_tokens=usage.input_tokens if usage else None,
             output_tokens=usage.output_tokens if usage else None,
             latency_ms=latency_ms,
+            reasoning_tokens=getattr(getattr(usage, "output_tokens_details", None), "reasoning_tokens", None),
         )

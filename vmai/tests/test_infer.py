@@ -12,7 +12,6 @@ from vmai.source_xlsx import SourceFacts
 
 ROOT = Path(__file__).resolve().parents[2]
 LAYOUTS = ROOT / "fixtures" / "eval" / "generated" / "layouts"
-pytestmark = pytest.mark.skipif(not LAYOUTS.exists(), reason="Chưa tạo: chạy fixtures/eval/generate_layouts.py")
 
 
 def _run_layouts():

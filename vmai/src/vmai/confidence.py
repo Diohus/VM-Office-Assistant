@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 
-RULE_VERSION = "0.4"
+RULE_VERSION = "0.9"
 
 
 class Color(str, Enum):
@@ -33,6 +33,8 @@ class ColumnMatch(str, Enum):
     EXACT = "exact"
     PROFILE = "profile"
     PROFILE_UNCHECKED = "profile_unchecked"
+    PROFILE_USER_ANSWER = "profile_user_answer"
+    PROFILE_SIMILAR_COLUMNS = "profile_similar_columns"
     NORMALIZED = "normalized"
     INFERRED = "inferred"
     ABBREVIATION = "abbreviation"
@@ -80,6 +82,7 @@ class ReadFacts:
     readers: tuple[str, ...] = ()
     reads_agree: bool | None = None
     scanned_text_layer: bool = False
+    pdf_text_verified: bool = False  # Q98: lớp chữ đã so với OCR đọc từ ảnh dựng của trang. Chưa có bước này thì không xanh
 
 
 def _engine(reader: str) -> str:
@@ -119,7 +122,9 @@ def grade_read(f: ReadFacts) -> Graded:
         if f.is_formula:
             return Graded(Color.YELLOW, (Reason("READ_XLSX_CACHED_FORMULA", "Dùng giá trị đã lưu của công thức nguồn"),))
         return Graded(Color.GREEN, (Reason("READ_XLSX_DIRECT", "Đọc trực tiếp từ Excel"),))
-    return Graded(Color.GREEN, (Reason("READ_PDF_TEXT_DIRECT", "Đọc trực tiếp từ lớp chữ PDF"),))
+    if not f.pdf_text_verified:
+        return Graded(Color.YELLOW, (Reason("READ_PDF_TEXT_UNVERIFIED", "Đọc từ lớp chữ PDF, chưa so với thứ hiển thị trên trang"),))
+    return Graded(Color.GREEN, (Reason("READ_PDF_TEXT_DIRECT", "Lớp chữ PDF khớp với OCR đọc từ ảnh dựng của trang"),))
 
 
 _COLUMN_GRADES = {
@@ -127,6 +132,9 @@ _COLUMN_GRADES = {
     ColumnMatch.NORMALIZED: (Color.GREEN, "MAP_COLUMN_EXACT", "Tiêu đề cột khớp sau khi bỏ dấu, chữ hoa thường"),
     ColumnMatch.PROFILE: (Color.GREEN, "MAP_COLUMN_PROFILE", "Khớp hồ sơ biểu mẫu đã xác nhận"),
     ColumnMatch.PROFILE_UNCHECKED: (Color.YELLOW, "MAP_PROFILE_NO_INDEPENDENT_CHECK", "Khớp hồ sơ nhưng cột không có kiểm tra độc lập"),
+    # Q114, Q115: ghép nhờ người dùng chọn cột hoặc trả lời "Cùng một thứ". Bấm nhầm thì giới hạn ±3SD không bắt được hết.
+    ColumnMatch.PROFILE_USER_ANSWER: (Color.YELLOW, "MAP_PROFILE_USER_ANSWER", "Khớp hồ sơ, nhưng cách ghép cột này do người dùng chọn hoặc trả lời"),
+    ColumnMatch.PROFILE_SIMILAR_COLUMNS: (Color.YELLOW, "MAP_PROFILE_SIMILAR_COLUMNS", "Khớp hồ sơ, nhưng nguồn có nhiều cột số có thể là kết quả"),
     ColumnMatch.INFERRED: (Color.YELLOW, "MAP_COLUMN_INFERRED", "Máy suy ra, chưa có hồ sơ được xác nhận"),
     ColumnMatch.ABBREVIATION: (Color.YELLOW, "MAP_COLUMN_ABBREVIATION", "Khớp qua từ điển viết tắt"),
     ColumnMatch.FUZZY: (Color.YELLOW, "MAP_COLUMN_FUZZY", "Khớp gần đúng"),
@@ -173,6 +181,10 @@ def check_printed_total(detail: str) -> CheckResult:
     return CheckResult(Color.RED, Reason("CHECK_PRINTED_TOTAL_MISMATCH", detail))
 
 
+def check_total_not_comparable(detail: str) -> CheckResult:
+    return CheckResult(Color.RED, Reason("CHECK_TOTAL_NOT_COMPARABLE", detail))
+
+
 def check_lot_mismatch(detail: str) -> CheckResult:
     return CheckResult(Color.RED, Reason("CHECK_LOT_MISMATCH", detail))
 
@@ -187,6 +199,14 @@ def check_not_in_list(detail: str) -> CheckResult:
 
 def check_decimal_places(detail: str) -> CheckResult:
     return CheckResult(Color.YELLOW, Reason("CHECK_DECIMAL_PLACES", detail))
+
+
+def check_unit_one_side(detail: str) -> CheckResult:
+    return CheckResult(Color.YELLOW, Reason("CHECK_UNIT_ONE_SIDE", detail))
+
+
+def check_decimal_shift(detail: str) -> CheckResult:
+    return CheckResult(Color.RED, Reason("CHECK_DECIMAL_SHIFT", detail))
 
 
 @dataclass(frozen=True)
@@ -208,9 +228,21 @@ def combine(read: Graded, mapping: Graded, checks: Iterable[CheckResult] = ()) -
 
 
 def grade_formula(
-    input_colors: Iterable[Color | None], proposed_by_llm: bool, input_unknown: bool = False
+    input_colors: Iterable[Color | None],
+    proposed_by_llm: bool,
+    input_unknown: bool = False,
+    *,
+    empty_inputs: int = 0,
+    skipped_inputs: int = 0,
+    pending_inputs: int = 0,
+    total_inputs: int = 0,
 ) -> tuple[Color | None, tuple[Reason, ...]]:
-    """Màu ô công thức. None trong đầu vào là ô nhập tay và không tham gia."""
+    """Màu ô công thức. None trong đầu vào là ô nhập tay và không tham gia.
+
+    Đề xuất còn chờ duyệt: đưa màu của nó vào `input_colors`, và đếm vào `pending_inputs`, vì số chưa vào lưới nên công thức đang tính thiếu ô đó.
+    `skipped_inputs`: ô có đề xuất mà người dùng bỏ qua.
+    `empty_inputs`: ô trống không có đề xuất. Công thức vẫn ra số trên ít ô hơn nên không được xanh, và lý do phải nói số ô.
+    """
     if input_unknown:
         return Color.RED, (Reason("FORMULA_INPUT_UNKNOWN", "Không xác định được ô đầu vào"),)
     colors = [c for c in input_colors if c is not None]
@@ -218,6 +250,17 @@ def grade_formula(
     if proposed_by_llm:
         colors.append(Color.YELLOW)
         reasons = (Reason("FORMULA_LLM_PROPOSED", "Công thức do LLM đề xuất"),)
+    missing = empty_inputs + skipped_inputs + pending_inputs
+    used = f"{total_inputs - missing}/{total_inputs}" if total_inputs else "ít"
+    if pending_inputs:
+        colors.append(Color.YELLOW)
+        reasons = (*reasons, Reason("FORMULA_INPUT_PENDING", f"Công thức chưa tính {pending_inputs} ô còn chờ duyệt, đang tính trên {used} ô"))
+    if skipped_inputs:
+        colors.append(Color.YELLOW)
+        reasons = (*reasons, Reason("FORMULA_INPUT_SKIPPED", f"Công thức đang tính thiếu {skipped_inputs} ô đã bỏ qua, trên {used} ô"))
+    if empty_inputs and colors:  # chỉ có ô nhập tay thì AI không tham gia, vẫn không có màu
+        colors.append(Color.YELLOW)
+        reasons = (*reasons, Reason("FORMULA_INPUT_EMPTY", f"Công thức đang tính trên {used} ô, {empty_inputs} ô còn trống"))
     if not colors:
         return None, reasons  # chỉ có ô nhập tay: không có màu, không phải xanh
     return lowest(colors), reasons

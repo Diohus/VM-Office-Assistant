@@ -20,6 +20,35 @@ def normalize_text(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", stripped.lower()).strip()
 
 
+_HEADER_UNIT = re.compile(r"^(.*\S)\s*[(\[]([^()\[\]]+)[)\]]\s*$")
+_BARE_UNITS = frozenset({"%", "g", "mg", "ug", "ng", "pg", "kg", "l", "dl", "ml", "ul", "fl", "mol", "mmol", "umol", "nmol", "iu", "u", "meq", "vnd"})
+
+
+def split_header_unit(text: str) -> tuple[str, str | None]:
+    """Tách `HGB (g/L)` thành tên và đơn vị. Ngoặc không giống đơn vị, như `Natri (máy 2)`, vẫn thuộc về tên.
+
+    Bỏ đơn vị chỉ để so tên. Đơn vị phải được so tiếp bằng `same_unit`, nếu không số sai gấp 10 lần sẽ ghép im lặng (R9b).
+    """
+    match = _HEADER_UNIT.match(str(text).strip())
+    if not match:
+        return str(text).strip(), None
+    inner = match.group(2).strip()
+    lowered = inner.lower().replace("µ", "u").replace("μ", "u")
+    if ("/" in inner and any(c.isalpha() or c == "%" for c in inner)) or lowered in _BARE_UNITS:
+        return match.group(1).strip(), inner
+    return str(text).strip(), None
+
+
+def same_unit(a: str, b: str) -> bool:
+    """So đơn vị, giữ chữ hoa thường: `G/L` (10^9/L) khác `g/L` (gam/L). Riêng lít viết `l` hay `L` là một."""
+
+    def canon(text: str) -> str:
+        cleaned = unicodedata.normalize("NFKC", text).replace("µ", "u").replace("μ", "u")
+        return "".join(cleaned.split()).replace("l", "L")
+
+    return canon(a) == canon(b)
+
+
 @dataclass(frozen=True)
 class FieldMatch:
     match: ColumnMatch
@@ -59,11 +88,19 @@ def match_field(
 
     if not fuzzy or not fields:
         return FieldMatch(ColumnMatch.NONE, None)
+
+    def closeness(name: str) -> float:
+        # `HGB (g/dL)` rất giống `HGB (g/L)` theo chữ nhưng là số khác 10 lần: khác đơn vị thì không khớp gần đúng.
+        ours, theirs = split_header_unit(text)[1], split_header_unit(name)[1]
+        if ours and theirs and not same_unit(ours, theirs):
+            return 0.0
+        # `Mức 1` rất giống `Mức 2` theo chữ nhưng là cột khác. Số trong tên phải giống hệt, nếu không số vào nhầm cột.
+        if re.findall(r"\d+", norm) != re.findall(r"\d+", normalize_text(name)):
+            return 0.0
+        return difflib.SequenceMatcher(None, norm, normalize_text(name)).ratio()
+
     scored = sorted(
-        (
-            (f, max(difflib.SequenceMatcher(None, norm, normalize_text(n)).ratio() for n in names))
-            for f, names in fields.items()
-        ),
+        ((f, max(closeness(n) for n in names)) for f, names in fields.items()),
         key=lambda item: -item[1],
     )
     if scored[0][1] < FUZZY_MIN:

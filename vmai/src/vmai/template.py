@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
@@ -20,6 +21,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from .errors import TemplateSpecError
 from .phi import is_person_header
+
+_READ_DATE_RE = re.compile(r"\d{1,2}\s*[/\-.]\s*\d{1,2}\s*[/\-.]\s*\d{4}")
 
 
 class _Model(BaseModel):
@@ -94,8 +97,17 @@ class PeriodSpec(_Model):
     field: str
 
 
+# Phiên bản định dạng của mô tả đoán ra (Q117). Tăng khi thêm trường làm đổi màu.
+# 2: có level_answer_columns, alternative_value_fields (quy tắc màu 0.6).
+SPEC_FORMAT = 2
+# Mô tả đoán ra do backend lưu lại phải có đủ các trường này, viết rõ ra, kể cả khi rỗng.
+# Thiếu thì trần vàng (Q114, Q115) mất mà không ai biết, nên không đọc.
+_INFERRED_REQUIRED = ("spec_format", "user_chosen_fields", "level_answer_columns", "alternative_value_fields")
+
+
 class TemplateSpec(_Model):
     spec_id: str
+    spec_format: int = 1
     version: int
     # "inferred": do infer_spec đoán, phần ghép không cao hơn vàng cho tới khi có hồ sơ được xác nhận.
     origin: Literal["declared", "inferred"] = "declared"
@@ -110,6 +122,14 @@ class TemplateSpec(_Model):
     period: PeriodSpec | None = None
     unit_field: str | None = None
     lot_field: str | None = None
+    # Cột do người dùng tự chọn ở màn xác nhận (US-1.13). Màu không đổi, chỉ thêm lý do để người xem biết.
+    user_chosen_fields: tuple[str, ...] = ()
+    # Cột biểu mẫu ghép được nhờ người dùng trả lời "Cùng một thứ" ở LEVEL_NAME_DIFFERS (chữ cột).
+    # Q114, Q115: cột ở đây và cột trong user_chosen_fields tối đa vàng, kể cả khi đã có hồ sơ.
+    level_answer_columns: tuple[str, ...] = ()
+    # Trường kết quả mà bộ đoán chọn giữa nhiều cột số của nguồn, ví dụ "Kết quả" và "KQ máy 1".
+    # T-AI-12 (chờ PM ghi số Q): tối đa vàng mãi. Chọn nhầm cột gần giống thì số vẫn trong giới hạn, Q17 không bắt được.
+    alternative_value_fields: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def _check_references(self) -> TemplateSpec:
@@ -130,6 +150,14 @@ def load_spec(source: Path | str | Mapping[str, Any]) -> TemplateSpec:
     """Đọc mô tả từ file YAML hoặc từ dict."""
     try:
         data = source if isinstance(source, Mapping) else yaml.safe_load(Path(source).read_text(encoding="utf-8"))
+        if isinstance(data, Mapping) and data.get("origin") == "inferred":
+            missing = [key for key in _INFERRED_REQUIRED if key not in data]
+            if missing or data.get("spec_format") != SPEC_FORMAT:
+                # Q117: backend coi như chưa có hồ sơ và cho người dùng xác nhận lại.
+                raise TemplateSpecError(
+                    "SPEC_OUTDATED",
+                    f"Mô tả đoán ra đã cũ hoặc thiếu trường (cần định dạng {SPEC_FORMAT}, thiếu: {', '.join(missing) or 'không'}). Cần xác nhận lại cách ghép.",
+                )
         return TemplateSpec.model_validate(data)
     except (ValidationError, ValueError, OSError, yaml.YAMLError) as exc:
         raise TemplateSpecError("SPEC_INVALID", f"Mô tả biểu mẫu không hợp lệ: {exc}") from exc
@@ -243,6 +271,16 @@ def as_date(value: Any) -> dt.date | None:
             except ValueError:
                 continue
     return None
+
+
+def classify_text(text: str) -> tuple[str, str]:
+    """Chữ đọc từ ảnh hoặc PDF: ngày thì đưa về dạng ISO, còn lại giữ nguyên."""
+    stripped = text.strip()
+    if _READ_DATE_RE.fullmatch(stripped.replace(" ", "")):
+        day = as_date(stripped.replace(" ", "").replace("-", "/").replace(".", "/"))
+        if day is not None:
+            return "date", day.isoformat()
+    return "text", stripped
 
 
 def key_text(value: Any) -> str:

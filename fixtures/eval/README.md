@@ -2,11 +2,13 @@
 
 **Toàn bộ là dữ liệu giả do đội tự tạo. Ảnh là mô phỏng bằng code, chưa phải ảnh chụp thật.** Dựa theo [docs/product/qc_form_spec.md](../../docs/product/qc_form_spec.md). Số đo trên bộ này không dự báo được chất lượng trên ảnh thật.
 
-Tạo lại, từ `spikes/ai`:
+Tạo lại, từ gốc repo. Test của `vmai` tự gọi lệnh này khi thiếu:
 
 ```text
-.venv/Scripts/python.exe ../../fixtures/eval/generate.py
+vmai/.venv/Scripts/python.exe fixtures/eval/make_fixtures.py
 ```
+
+`ocr_tokens/`: token của hai OCR nội bộ trên ảnh giả `clean_s301` và `D10_quet`. Ảnh sinh ra giống hệt từng byte, nên token vẫn khớp.
 
 Kết quả nằm ở `generated/`, seed cố định, không cần đưa vào git. Font lấy từ `C:/Windows/Fonts` nên hiện chỉ tạo được trên Windows.
 

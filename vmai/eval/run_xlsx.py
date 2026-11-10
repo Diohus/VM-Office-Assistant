@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 from collections import Counter
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -156,6 +157,178 @@ def dev_fixtures() -> dict:
     return out
 
 
+def other_machine_source(path: Path, bias: float = 0.01, seed: int = 7) -> Path:
+    """Q118, T-AI-13 (b): nguồn X01_m0 nhưng là số của máy khác, cùng tên cột, cùng tháng. [MẪU GIẢ]"""
+    import random
+
+    import openpyxl
+
+    wb = openpyxl.load_workbook(CASE_DIRS[0] / "X01_m0" / "source.xlsx")
+    ws = wb.worksheets[0]
+    col = [c.value for c in ws[1]].index("Kết quả") + 1
+    rng = random.Random(seed)
+    for r in range(2, ws.max_row + 1):
+        v = ws.cell(r, col).value
+        if isinstance(v, (int, float)):
+            nv = round(v * (1 + bias * rng.choice((-1, 1)) * rng.uniform(0.5, 1.5)), 2 if v < 100 else 0)
+            ws.cell(r, col, nv if nv != v else v + (0.01 if v < 100 else 1))
+    wb.save(path)
+    return path
+
+
+def known_leak_q118(tmp: Path) -> dict:
+    """Ca đã biết đang lọt (Q118): biểu mẫu khai sẵn, hồ sơ đã xác nhận, file của máy khác. Không tính vào tổng sai xanh."""
+    directory = CASE_DIRS[0] / "X01_m0"
+    answer = json.loads((directory / "answer.json").read_text(encoding="utf-8"))
+    gold = {c["a1"]: c["value"] for c in answer["cells"] if not c["a1"].startswith("H")}
+    form = read_form(directory / "template.xlsx", SPEC)
+    source = read_source(other_machine_source(tmp / "x01_may_khac.xlsx"))
+    batch = propose(form, source, plan_headers(form, source, load_profile(answer, form.fingerprint)))
+    wrong_green = sum(
+        1 for c in batch.changes if c.confidence.final_color.value == "green" and not _same(c.value.normalized, str(gold.get(c.target.a1_at_write)))
+    )
+    return {"case": "Q118_file_may_khac", "proposals": len(batch.changes), "wrong_green": wrong_green}
+
+
+def _qc_values(path: Path) -> dict[tuple, float]:
+    import openpyxl
+
+    ws = openpyxl.load_workbook(path).worksheets[0]
+    head = [c.value for c in ws[1]]
+    i_day, i_code, i_level, i_value = (head.index(h) for h in ("Ngày chạy", "Mã XN", "Mức", "Kết quả"))
+    return {(r[i_day], r[i_code], r[i_level]): r[i_value] for r in ws.iter_rows(min_row=2, values_only=True) if r[i_value] is not None}
+
+
+def _write_qc(path: Path, values: dict[tuple, float]) -> Path:
+    """Chép nguồn X01_m0, thay cột Kết quả bằng `values`. Giữ ngày tháng này. Dòng không có trong `values` bị bỏ (lô ngắn)."""
+    import openpyxl
+
+    wb = openpyxl.load_workbook(CASE_DIRS[0] / "X01_m0" / "source.xlsx")
+    ws = wb.worksheets[0]
+    head = [c.value for c in ws[1]]
+    i_day, i_code, i_level, i_value = (head.index(h) for h in ("Ngày chạy", "Mã XN", "Mức", "Kết quả"))
+    kept = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        key = (row[i_day], row[i_code], row[i_level])
+        if key in values:
+            row = list(row)
+            row[i_value] = values[key]
+            kept.append(row)
+    ws.delete_rows(2, ws.max_row)
+    for row in kept:
+        ws.append(row)
+    wb.save(path)
+    return path
+
+
+def stale_month_cases(tmp: Path) -> list[dict]:
+    """Q119, T-AI-14: bẫy nạp lại file tháng trước, và nguồn đúng có nhiều số trùng tự nhiên. [MẪU GIẢ]
+
+    Tháng trước = số đã duyệt của X01_m0. Tháng này đúng = X01_m1 (cùng bố cục, số khác).
+    """
+    import random
+
+    m0, m1 = CASE_DIRS[0] / "X01_m0", CASE_DIRS[0] / "X01_m1"
+    answer = json.loads((m0 / "answer.json").read_text(encoding="utf-8"))
+    form = read_form(m0 / "template.xlsx", SPEC)
+    profile = load_profile(answer, form.fingerprint)
+    old, new = _qc_values(m0 / "source.xlsx"), _qc_values(m1 / "source.xlsx")
+    days = sorted({k[0] for k in old})
+    limits = {(c, l): (lim.target, lim.sd) for col in form.columns if col.limit for c, l in [(col.dims["code"], "L" + col.dims["level"])] for lim in [col.limit]}
+
+    def run(name: str, values: dict, last: dict, expect_alarm: bool) -> dict:
+        source = read_source(_write_qc(tmp / f"{name}.xlsx", values))
+        plan = plan_headers(form, source, profile)
+        base = propose(form, source, plan)
+        last_month = {c.target.a1_at_write: c.value.normalized for c in propose(form, read_source(_write_qc(tmp / f"{name}_truoc.xlsx", last)), plan).changes}
+        batch = propose(form, source, plan, previous_month=last_month)
+        alarm = "SOURCE_LOOKS_LIKE_LAST_MONTH" in {n.reason for n in batch.notices}
+        cells_same = sum(1 for c in batch.changes if last_month.get(c.target.a1_at_write) == c.value.normalized) / max(len(batch.changes), 1)
+        # Đo độc lập với code quy tắc: tỷ lệ ngày mà mọi cột không cố định (một giá trị < 80% tháng trước) giống tháng trước.
+        by_col: dict[str, list[str]] = {}
+        for a1, v in last_month.items():
+            by_col.setdefault(a1.rstrip("0123456789"), []).append(v)
+        moving = {k for k, vs in by_col.items() if Counter(vs).most_common(1)[0][1] < 0.8 * len(vs)}
+        day_rows: dict[str, list[bool]] = {}
+        for c in batch.changes:
+            letter = c.target.a1_at_write.rstrip("0123456789")
+            if letter in moving:
+                day_rows.setdefault(c.target.a1_at_write[len(letter):], []).append(last_month.get(c.target.a1_at_write) == c.value.normalized)
+        rows_same = sum(all(v) for v in day_rows.values()) / max(len(day_rows), 1)
+        colors, base_colors = Counter(c.confidence.final_color.value for c in batch.changes), Counter(c.confidence.final_color.value for c in base.changes)
+        # Q121, kiểm độc lập với code: ô nào thuộc ngày trùng cả dòng thì không được xanh; ngoài các ngày đó, màu giữ như khi không kiểm
+        # (trừ khi cả lô bị báo). "stale_green" là ô xanh nằm ở ngày trùng: phải bằng 0 ở mọi ca.
+        same_rows = {r for r, v in day_rows.items() if v and all(v)}
+        row_of = lambda a1: a1[len(a1.rstrip("0123456789")):]  # noqa: E731
+        base_color = {c.target.a1_at_write: c.confidence.final_color.value for c in base.changes}
+        stale_green = sum(1 for c in batch.changes if row_of(c.target.a1_at_write) in same_rows and c.confidence.final_color.value == "green")
+        outside_changed = sum(1 for c in batch.changes if row_of(c.target.a1_at_write) not in same_rows and c.confidence.final_color.value != base_color[c.target.a1_at_write])
+        row_yellow = sum(1 for c in batch.changes if row_of(c.target.a1_at_write) in same_rows and base_color[c.target.a1_at_write] == "green")
+        ok = alarm == expect_alarm and stale_green == 0 and (colors.get("green", 0) == 0 if expect_alarm else outside_changed == 0)
+        return {"case": name, "expect_alarm": expect_alarm, "alarm": alarm, "cells_same_share": round(cells_same, 2), "rows_same_share": round(rows_same, 2),
+                "moving_columns": len(moving), "same_rows": len(same_rows), "row_yellow_cells": row_yellow, "stale_green_cells": stale_green,
+                "colors": dict(colors), "without_check": dict(base_colors), "ok": ok}
+
+    rows = []
+    for edited in (0, 10, 20):
+        reload = dict(old)
+        for d in days[:edited]:
+            for key in [k for k in old if k[0] == d]:
+                reload[key] = new[key]
+        rows.append(run(f"nap_lai_thang_truoc_sua_{edited}_dong", reload, old, True))
+    rows.append(run("nguon_dung_thang_moi", new, old, False))
+    rng = random.Random(119)
+
+    # Trùng tự nhiên (1): 4 cột cố định, 2 cột GLU ít biến động (giá trị hay gặp nhất khoảng 75% số ngày, dưới mức "cố định" 80%).
+    # Nhiều dòng trùng cả dòng (trên 30%), nhưng chỉ còn 2 cột thay đổi nên kiểm phải tự tắt. Ca này giữ điều kiện "≤ 2 cột".
+    def fixed(vals: dict) -> dict:
+        out = {}
+        for k in vals:
+            target, sd = limits[(k[1], k[2])]
+            out[k] = round(target + (sd if rng.random() < 0.25 else 0), 2) if k[1] == "GLU" else target
+        return out
+
+    rows.append(run("trung_tu_nhien_4_cot_co_dinh", fixed(new), fixed(old), False))
+    # Trùng tự nhiên (2): số làm tròn theo bậc SD, mỗi ô chỉ còn vài giá trị, nhiều ô trùng tháng trước.
+
+    def coarse(vals: dict) -> dict:
+        out = {}
+        for k, v in vals.items():
+            target, sd = limits[(k[1], k[2])]
+            step = rng.choice((-1, 0, 0, 1))
+            out[k] = round(target + step * sd, 2)
+        return out
+
+    rows.append(run("trung_tu_nhien_lam_tron_theo_sd", coarse(new), coarse(old), False))
+
+    # Trùng tự nhiên (3): 3 cột ít biến động (mỗi ô chỉ 2 giá trị), 3 cột cố định. Có vài ngày trùng cả dòng nhưng dưới 30%.
+    # Ca này để ngưỡng quá thấp (ví dụ 0) phải hỏng test.
+    def few(vals: dict) -> dict:
+        out = {}
+        for k, v in vals.items():
+            target, sd = limits[(k[1], k[2])]
+            out[k] = round(target + rng.choice((0, 0, 1)) * sd, 2) if (k[1], k[2]) in (("GLU", "L1"), ("GLU", "L2"), ("CHOL", "L1")) else target
+        return out
+
+    rows.append(run("trung_tu_nhien_3_cot_it_bien_dong", few(new), few(old), False))
+
+    # Q120: lô 3 ngày. Tháng trước vẫn đủ 30 ngày; nguồn tháng này chỉ có 3 ngày đầu.
+    first3 = set(days[:3])
+    pick = lambda vals: {k: v for k, v in vals.items() if k[0] in first3}  # noqa: E731
+    rows.append(run("lo_3_ngay_nguon_dung", pick(new), old, False))
+    one_same = pick(new)
+    for key in [k for k in old if k[0] == days[0]]:
+        one_same[key] = old[key]  # 1/3 ngày trùng cả dòng: 33% nhưng chưa đủ 2 ngày, không báo (Q120)
+    rows.append(run("lo_3_ngay_dung_1_ngay_trung", one_same, old, False))
+    rows.append(run("lo_3_ngay_file_cu_nguyen", pick(old), old, True))
+    edited = pick(old)
+    for key in [k for k in new if k[0] in set(days[1:3])]:
+        edited[key] = new[key]
+    # Q121: trước đây sót (6 ô xanh mang số tháng trước). Nay dòng trùng tự vàng, không cần ngưỡng.
+    rows.append(run("lo_3_ngay_file_cu_sua_2_ngay", edited, old, False))
+    return rows
+
+
 def main() -> None:
     OUT.mkdir(exist_ok=True)
     results = [run_case(d) for base in CASE_DIRS for d in sorted(base.iterdir()) if d.is_dir() and d.name != "X19"]
@@ -181,9 +354,28 @@ def main() -> None:
     (OUT / "eval_xlsx.json").write_text(json.dumps({"cases": results, "summary": summary, "q30": matrix, "dev_fixtures": fixtures}, ensure_ascii=False, indent=1), encoding="utf-8")
     bad = [r["case"] for r in regular if r["color_mismatches"] or r["missing_notices"] or not r["no_proposal_ok"] or r["errors"]]
     bad += [r["case"] for r in wrong_profile if r["errors_by_color"].get("green", 0)]
+    with tempfile.TemporaryDirectory() as tmp:
+        stale = stale_month_cases(Path(tmp))
+    print("\nNghi nạp nhầm file tháng trước (Q119-Q121; dòng trùng luôn vàng; ngưỡng cả lô đặt trên phân bố tự nghĩ):")
+    for r in stale:
+        print(f"  {r['case']:36} báo={str(r['alarm']):5} mong={str(r['expect_alarm']):5} ô trùng={r['cells_same_share']:.0%} dòng vàng={r['row_yellow_cells']:>3} ô xanh ở ngày trùng={r['stale_green_cells']} màu={r['colors']} {'' if r['ok'] else 'SAI'}")
+    bad += [r["case"] for r in stale if not r["ok"]]
+    with tempfile.TemporaryDirectory() as tmp:
+        leak = known_leak_q118(Path(tmp))
+    if leak["wrong_green"]:
+        # Q118: in riêng, không gộp vào số tổng 0 sai xanh.
+        print(f"\nĐANG LỌT, Q118: {leak['wrong_green']}/{leak['proposals']} sai xanh khi nạp file máy khác")
+    else:
+        # Đã chặn được thì phải bỏ ca này khỏi danh sách đã biết và bỏ xfail trong test, không để lặng lẽ.
+        bad.append("Q118 không còn lọt: bỏ khỏi danh sách ca đã biết và bỏ xfail trong tests/test_known_leaks.py")
+    outside = sum(r["errors_by_color"].get("green", 0) for r in results)
+    print(f"Tổng: {outside} sai xanh ngoài các ca đã biết; {1 if leak['wrong_green'] else 0} ca đã biết đang lọt")
     print("\nCó vấn đề:", bad or "không")
     sys.exit(1 if bad else 0)
 
 
 if __name__ == "__main__":
+    import _console
+
+    _console.utf8()
     main()

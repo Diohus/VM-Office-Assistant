@@ -10,11 +10,10 @@ from vmai.document import DocLine, DocPage, DocumentFacts, lines_from_tokens, ma
 from vmai.errors import SourceFileError
 from vmai.llm.base import LLMBadOutput, LLMResponse
 from vmai.llm.factory import create_provider, load_profile
-from vmai.outline import Block, assign_headings, build_outline, check_text, check_written_paragraphs, guess_headings
+from vmai.outline import Block, HeadingMark, assign_headings, build_outline, check_text, check_written_paragraphs, guess_headings, number_level
 from vmai.phi import ExternalSendPolicy, PhiDetected, SendNotAllowed
 
 CASES = Path(__file__).resolve().parents[2] / "fixtures" / "eval" / "generated" / "word"
-pytestmark = pytest.mark.skipif(not CASES.exists(), reason="Chưa tạo: chạy fixtures/eval/generate_word.py")
 SEND = ExternalSendPolicy(allow_documents=True)
 
 
@@ -166,8 +165,6 @@ def test_line_without_digits_is_not_marked_when_second_read_exists():
 
 def test_q70_every_wrong_digit_line_is_flagged_on_the_scan_fixture():
     answer_path = CASES / "D10_quet" / "ocr_tokens.json"
-    if not answer_path.exists():
-        pytest.skip("Chưa chạy ocr_word_pages.py")
     import importlib.util
 
     spec = importlib.util.spec_from_file_location("run_word", Path(__file__).resolve().parents[1] / "eval" / "run_word.py")
@@ -219,8 +216,6 @@ def test_level_jump_is_reported():
 
 def test_scan_keeps_content_lines_only_real_header_footer_dropped():
     """Lỗi đã gặp: tọa độ OCR bằng pixel so với chiều cao trang bằng point làm dòng nội dung bị coi là chân trang."""
-    if not (CASES / "D10_quet" / "ocr_tokens.json").exists():
-        pytest.skip("Chưa chạy ocr_word_pages.py")
     import importlib.util
 
     spec = importlib.util.spec_from_file_location("run_word", Path(__file__).resolve().parents[1] / "eval" / "run_word.py")
@@ -230,3 +225,78 @@ def test_scan_keeps_content_lines_only_real_header_footer_dropped():
     result = module.scan_case(CASES / "D10_quet", answer)
     assert result["dropped_lines"] <= 2 * result["pages_scanned"]
     assert result["lines_with_wrong_digits"] + result["right_digit_lines"] > 150
+
+
+def _line(index, text, **extra):
+    return DocLine(index=index, page=1, text=text, x0=50, top=50 + index * 20, x1=400, bottom=62 + index * 20, **extra)
+
+
+def _facts(lines):
+    return DocumentFacts(file_name="a.pdf", sha256="x", pages=(DocPage(page=1, kind="text", width=600, height=800),), lines=tuple(lines))
+
+
+@pytest.mark.parametrize(
+    "text,level",
+    [
+        ("1 Giới thiệu", 1),
+        ("2.5 Bảo dưỡng", 2),
+        ("3.2.1. Thay bóng đèn", 3),
+        ("2.5 mg", None),
+        ("2,5 mg", None),
+        ("10 phút", None),
+        ("5 ml.", None),
+        ("2026 Báo cáo năm", None),
+        ("12.5", None),
+        ("Bảo dưỡng", None),
+    ],
+)
+def test_q89_number_level(text, level):
+    assert number_level(_line(1, text)) == level
+
+
+def test_q89_model_cannot_change_level_of_numbered_heading():
+    document = _facts([_line(1, "2.5 Bảo dưỡng"), _line(2, "Lưu ý chung")])
+    outline = build_outline(document, [HeadingMark(line=1, level=1), HeadingMark(line=2, level=3)], "model")
+    heads = [b for b in outline.blocks if b.kind == "heading"]
+    assert [(b.level, b.level_source) for b in heads] == [(2, "number"), (3, "model")]
+    assert outline.check.identical
+
+
+def test_q89_number_does_not_make_a_line_a_heading():
+    """Số chỉ quyết cấp. Dòng model không chọn thì vẫn là thân bài."""
+    outline = build_outline(_facts([_line(1, "2.5 Bảo dưỡng")]), [], "model")
+    assert not [b for b in outline.blocks if b.kind == "heading"]
+
+
+def test_q89_dose_line_marked_by_model_keeps_model_level_and_says_ai_guessed():
+    outline = build_outline(_facts([_line(1, "2.5 mg")]), [HeadingMark(line=1, level=4)], "model")
+    head = next(b for b in outline.blocks if b.kind == "heading")
+    assert (head.level, head.level_source) == (4, "model")
+
+
+def test_q89_corrupted_ocr_number_is_no_evidence():
+    line = _line(1, "2.5 Bảo dưỡng", uncertain=True, digits_differ=True, source="ocr")
+    outline = build_outline(_facts([line]), [HeadingMark(line=1, level=1)], "model")
+    head = next(b for b in outline.blocks if b.kind == "heading")
+    assert (head.level, head.level_source, head.uncertain) == (1, "model", True)
+
+
+def test_q89_heuristic_does_not_take_dose_as_heading():
+    lines = [_line(1, "2.5 mg", font_size=11.0), _line(2, "2.5 Bảo dưỡng", font_size=11.0)]
+    assert [m.line for m in guess_headings(lines)] == [2]
+
+
+def test_q89_ocr_number_both_reads_agree_is_evidence_but_stays_flagged():
+    line = _line(1, "2.5 Bảo dưỡng", uncertain=True, source="ocr")
+    outline = build_outline(_facts([line]), [HeadingMark(line=1, level=1)], "model")
+    head = next(b for b in outline.blocks if b.kind == "heading")
+    assert (head.level, head.level_source, head.uncertain) == (2, "number", True)
+
+
+def test_q89_heuristic_keeps_corrupted_number_line_but_labels_it_a_guess():
+    line = _line(1, "2.5 Bảo dưỡng", uncertain=True, digits_differ=True, source="ocr")
+    marks = guess_headings([line])
+    outline = build_outline(_facts([line]), marks, "heuristic")
+    head = next(b for b in outline.blocks if b.kind == "heading")
+    assert (head.level, head.level_source, head.uncertain) == (2, "heuristic", True)
+

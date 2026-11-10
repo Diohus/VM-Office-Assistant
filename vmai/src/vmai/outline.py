@@ -24,6 +24,12 @@ MAX_LINE_CHARS_SENT = 120
 MAX_HEADING_CHARS = 90
 _NUMBER_PREFIX = re.compile(r"^(\d+(?:\.\d+)*)[.)]?\s+\S")
 _TOC_LINE = re.compile(r"(\.{3,}|…)\s*\d+\s*$")
+# Số đo, không phải số mục: `2.5 mg`, `10 phút`. So sánh sau khi bỏ dấu câu cuối và viết thường.
+_UNITS = frozenset(
+    "mg g kg mcg µg ug ng ml l dl cl mm cm m km nm um µm mmol mol iu ui % °c v kv mv w kw a ma hz khz mhz kpa pa bar psi mmhg vòng rpm "
+    "giờ phút giây ngày tuần tháng năm lần viên ống gói chai lọ".split()
+)
+_MAX_SECTION_DIGITS = 2
 _HEADING_SCHEMA = {
     "type": "object",
     "properties": {
@@ -78,6 +84,8 @@ class Block(BaseModel):
     bbox: tuple[float, float, float, float] | None = None
     uncertain: bool = False
     source: Literal["text", "ocr"] = "text"
+    # Q89: cấp lấy từ đâu. Khác "number" thì màn duyệt ghi "cấp do AI đoán".
+    level_source: Literal["number", "model", "heuristic"] | None = None
 
 
 class TextCheck(BaseModel):
@@ -118,6 +126,28 @@ def _body_size(lines: list[DocLine]) -> float | None:
     return sizes.most_common(1)[0][0] if sizes else None
 
 
+def _section_depth(text: str) -> int | None:
+    """Độ sâu nếu đầu dòng trông như số mục. Số đo như `2.5 mg`, số dài như năm `2026`, sau số không có chữ thì không phải."""
+    text = text.strip()
+    match = _NUMBER_PREFIX.match(text)
+    if not match or any(len(part) > _MAX_SECTION_DIGITS for part in match.group(1).split(".")):
+        return None
+    first_word = text[match.end(1) :].lstrip(".) ").split()[0].rstrip(".,;:").lower()
+    if first_word in _UNITS or not first_word[0].isalpha():
+        return None
+    return min(match.group(1).count(".") + 1, MAX_LEVEL)
+
+
+def number_level(line: DocLine) -> int | None:
+    """Cấp theo số mục của dòng (Q89). None khi số không làm căn cứ được.
+
+    Dòng OCR hai lần đọc ra chữ số khác nhau thì số có thể đã hỏng, nên không phải căn cứ.
+    Hai OCR đọc giống nhau thì số dùng được, dòng vẫn bị tô để người dùng so với ảnh (Q70).
+    Hàm này không quyết dòng nào là đầu mục, chỉ quyết cấp sau khi dòng đã được xác định là đầu mục.
+    """
+    return None if line.digits_differ else _section_depth(line.text)
+
+
 def guess_headings(lines: tuple[DocLine, ...] | list[DocLine]) -> list[HeadingMark]:
     """Đoán đầu mục bằng cỡ chữ, chữ đậm và đánh số. Không gửi gì ra ngoài."""
     usable = [line for line in lines if not line.repeated and not line.in_table]
@@ -130,12 +160,12 @@ def guess_headings(lines: tuple[DocLine, ...] | list[DocLine]) -> list[HeadingMa
         if len(text) > MAX_HEADING_CHARS or _TOC_LINE.search(text) or text.endswith((".", ";", ",", ":")):
             continue
         emphasized = bool(line.bold or (line.font_size and line.font_size in bigger))
-        number = _NUMBER_PREFIX.match(text)
-        if number:
-            depth = number.group(1).count(".") + 1
+        # Đây là đoán, nên dòng số hỏng vẫn được đề xuất; khi dựng, nó mang nhãn đoán chứ không phải căn cứ.
+        depth = _section_depth(text)
+        if depth is not None:
             # `1. Mở nắp máy` cùng cỡ chữ là danh sách các bước, không phải đầu mục.
             if depth >= 2 or emphasized:
-                marks.append(HeadingMark(line=line.index, level=min(depth, MAX_LEVEL)))
+                marks.append(HeadingMark(line=line.index, level=depth))
         elif emphasized and not text[:1].isdigit():
             level = bigger.index(line.font_size) + 1 if line.font_size in bigger else len(bigger) + 1
             marks.append(HeadingMark(line=line.index, level=min(level, MAX_LEVEL)))
@@ -309,6 +339,9 @@ def build_outline(
         level = by_line.get(line.index)
         if level is not None:
             flush()
+            # Q89: dòng đã là đầu mục và có số làm căn cứ thì cấp theo số, model không đổi được.
+            from_number = number_level(line)
+            level = from_number if from_number is not None else level
             counters[level - 1] += 1
             for i in range(level, MAX_LEVEL):
                 counters[i] = 0
@@ -316,7 +349,7 @@ def build_outline(
             if not _NUMBER_PREFIX.match(line.text):
                 number = ".".join(str(c or 1) for c in counters[:level])
             blocks.append(
-                Block(kind="heading", page=line.page, text=line.text, level=level, number=number, line_indices=(line.index,), uncertain=line.uncertain, source=line.source)
+                Block(kind="heading", page=line.page, text=line.text, level=level, number=number, line_indices=(line.index,), uncertain=line.uncertain, source=line.source, level_source="number" if from_number is not None else method)
             )
             continue
         previous = paragraph[-1] if paragraph else None

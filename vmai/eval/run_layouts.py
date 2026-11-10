@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import Counter
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -112,7 +113,25 @@ def classify(out: dict) -> dict:
     return out
 
 
-def main() -> None:
+def failures(results: list[dict]) -> list[str]:
+    """Ca làm eval thoát mã 1. Cùng điều kiện với test_infer: xanh trước khi xác nhận, sai bị xanh sau khi người dùng
+    xác nhận đoán, đoán sai không báo, lộ giá trị cấm. Chỉ quyết định mã thoát, không đổi màu."""
+    bad = []
+    for r in results:
+        if r["colors"].get("green", 0):
+            bad.append(f"{r['case']}: xanh trước khi xác nhận")
+        if r["wrong_green"]:
+            bad.append(f"{r['case']}: {r['wrong_green']} sai bị xanh")
+        if r["confirmed_wrong_green"]:
+            bad.append(f"{r['case']}: {r['confirmed_wrong_green']} sai bị xanh nếu người dùng xác nhận")
+        if r["outcome"] in ("đoán sai không báo", "hỏi 1 câu rồi vẫn sai"):
+            bad.append(f"{r['case']}: {r['outcome']}")
+        if r["forbidden_leak"]:
+            bad.append(f"{r['case']}: lộ {r['forbidden_leak']}")
+    return bad
+
+
+def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--save-as", default="eval_layouts")
     args = parser.parse_args()
@@ -133,7 +152,13 @@ def main() -> None:
     print("Bố cục do người viết infer_spec tự nghĩ. CHƯA kiểm chứng với mẫu thật.")
     OUT.mkdir(exist_ok=True)
     (OUT / f"{args.save_as}.json").write_text(json.dumps({"summary": summary, "cases": results}, ensure_ascii=False, indent=1), encoding="utf-8")
+    bad = failures(results)
+    print("\nCó vấn đề:", bad or "không")
+    return 1 if bad else 0
 
 
 if __name__ == "__main__":
-    main()
+    import _console
+
+    _console.utf8()
+    sys.exit(main())

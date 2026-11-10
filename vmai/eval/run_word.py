@@ -162,8 +162,12 @@ def main() -> None:
     for name, r in results.items():
         print(name, json.dumps(r, ensure_ascii=False))
     print("\nĐây là bộ đoán không dùng LLM trên tài liệu tự nghĩ. Độ đúng đầu mục của model: CHƯA ĐO.")
+    print("CHỈ ĐO: lệnh này luôn thoát mã 0, kể cả khi số xấu. Đọc số ở trên, không dựa vào mã thoát.")
     (OUT / "eval_word.json").write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
 if __name__ == "__main__":
+    import _console
+
+    _console.utf8()
     main()

@@ -4,6 +4,7 @@ Import gói này không kéo theo SDK LLM và không đọc biến môi trườn
 """
 from .confidence import RULE_VERSION, Color, grade_formula
 from .contract import SCHEMA_VERSION, LlmCall, ProposalBatch
+from .confirm import ConfirmRow, SourceOption, confirmation_rows, source_options
 from .errors import FeatureNotReleased, MissingFields, SourceFileError, TemplateSpecError, VmaiError
 from .headers import HeaderPlan, plan_headers
 from .infer import SpecGuess, infer_spec, profile_from_guess
@@ -20,7 +21,11 @@ __all__ = [
     "SCHEMA_VERSION",
     "Color",
     "ExternalSendPolicy",
+    "ConfirmRow",
     "FeatureNotReleased",
+    "SourceOption",
+    "confirmation_rows",
+    "source_options",
     "FormFacts",
     "FormulaCheck",
     "FormulaRisk",

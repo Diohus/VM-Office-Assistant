@@ -37,9 +37,13 @@ def main() -> None:
     print("ƯỚC TÍNH, chưa gọi model nào. Số token thật phải đo khi có key.")
     for name, row in rows.items():
         print(f"- {name}: {json.dumps(row, ensure_ascii=False)}")
+    print("CHỈ ĐO: lệnh này luôn thoát mã 0, kể cả khi số xấu. Đọc số ở trên, không dựa vào mã thoát.")
     OUT.mkdir(exist_ok=True)
     (OUT / "cost_estimate.json").write_text(json.dumps({"basis": "uoc_tinh", "rows": rows}, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
 if __name__ == "__main__":
+    import _console
+
+    _console.utf8()
     main()

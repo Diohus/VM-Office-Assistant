@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import sys
 import statistics
 import time
 from pathlib import Path
@@ -15,6 +16,9 @@ from vmai.llm.base import ImagePart, LLMError, LLMRequest, Message, TextPart, To
 from vmai.llm.budget import Budget
 from vmai.llm.factory import create_provider, load_profile
 from vmai.llm.keys import read_api_key
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _env import load_key  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 SAMPLE_IMAGE = ROOT / "fixtures" / "eval" / "generated" / "images" / "clean_s301" / "page.jpg"
@@ -75,6 +79,7 @@ def main() -> None:
         print("Chưa có --confirm-network: không gọi mạng.")
         return
 
+    load_key(profile.api_key_env)
     read_api_key(profile)  # thiếu key thì dừng ở đây, trước khi gọi
     # Xác minh diễn ra trước khi biết giá, nên ở đây chỉ dùng trần token.
     provider = create_provider(dataclasses.replace(profile, budget=Budget(max_tokens_per_run=MAX_TOKENS)), allow_unverified=True)
@@ -91,4 +96,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import _console
+
+    _console.utf8()
     main()

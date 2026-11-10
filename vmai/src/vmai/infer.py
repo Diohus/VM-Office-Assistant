@@ -5,6 +5,8 @@ không bao giờ cao hơn vàng cho tới khi có người xác nhận. Không c
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import datetime as dt
 import hashlib
 import re
@@ -16,12 +18,12 @@ from openpyxl.utils.cell import coordinate_from_string, range_boundaries
 from pydantic import BaseModel, ConfigDict
 
 from .errors import FeatureNotReleased
-from .mapping import normalize_text
+from .mapping import normalize_text, same_unit, split_header_unit
 from .numbers import ParseStatus, parse_number
 from .phi import is_person_header, phi_kind
 from .profile import TemplateProfile
 from .source_xlsx import SourceCell, SourceFacts, SourceSheet
-from .template import TemplateSpec, as_date, key_text, load_spec
+from .template import SPEC_FORMAT, TemplateSpec, as_date, key_text, load_spec
 
 MIN_DATA_ROWS = 2
 MIN_FILL = 0.7
@@ -57,6 +59,16 @@ class GuessedColumn(BaseModel):
     col_path: tuple[str, ...]
     source_header: str
     dims: dict[str, str] = {}
+    chosen_by_user: bool = False
+
+
+class OpenColumn(BaseModel):
+    """Cột của biểu mẫu chưa ghép được, để màn xác nhận cho người dùng chọn."""
+
+    model_config = ConfigDict(frozen=True)
+
+    letter: str
+    col_path: tuple[str, ...]
 
 
 class SpecGuess(BaseModel):
@@ -68,6 +80,8 @@ class SpecGuess(BaseModel):
     spec: TemplateSpec | None = None
     questions: tuple[Question, ...] = ()
     columns: tuple[GuessedColumn, ...] = ()
+    unmapped_columns: tuple[str, ...] = ()  # Q84: có `spec` cho các cột đã ghép, các cột này hỏi riêng
+    open_columns: tuple[OpenColumn, ...] = ()
     computed_columns: tuple[str, ...] = ()
     label_columns: tuple[str, ...] = ()
     manual_columns: tuple[str, ...] = ()
@@ -109,6 +123,9 @@ def _has_content(cell: SourceCell) -> bool:
 
 
 def _is_label(cell: SourceCell) -> bool:
+    # Ô đọc từ ảnh, PDF luôn ở dạng chữ. Số vẫn là số, nếu không mọi dòng dữ liệu đều giống tiêu đề.
+    if cell.read is not None and parse_number(cell.value.replace(" ", "")).status is not ParseStatus.INVALID:
+        return False
     return cell.is_text and cell.formula is None
 
 
@@ -243,12 +260,39 @@ def _name_in(header: str, names: tuple[str, ...]) -> bool:
     return normalize_text(header) in names
 
 
+def _name_variants(path: tuple, picked: _SourceColumn, number_cols: list[_SourceColumn]) -> list[_SourceColumn]:
+    """Cột số khác mang cùng tên với cột biểu mẫu kèm chữ thêm, ví dụ "Natri máy 1" khi đã khớp "Natri" (T-AI-13).
+
+    Hai cột như vậy thường là hai máy, hai lần chạy. Số gần nhau nên giới hạn không phân biệt được, app không được tự chọn.
+    """
+    names = {normalize_text(split_header_unit(str(p))[0]) for p in path} - {""}
+    out = []
+    for col in number_cols:
+        if col is picked:
+            continue
+        base = normalize_text(split_header_unit(col.header)[0])
+        if any(base != name and (base.startswith(name + " ") or base.endswith(" " + name)) for name in names):
+            out.append(col)
+    return out
+
+
 def _same_number_name(a: str, b: str) -> bool:
     """Hai tiêu đề cùng là một đại lượng: giống nhau, hoặc cùng nhóm trong bảng tên thông dụng."""
-    na, nb = normalize_text(a), normalize_text(b)
+    # So tên, không so đơn vị. Đơn vị khác nhau thì propose hạ đỏ (R9b), không coi là cột khác để rồi đoán tiếp.
+    na, nb = normalize_text(split_header_unit(a)[0]), normalize_text(split_header_unit(b)[0])
     if na == nb:
         return True
     return any({na, nb} <= {canon, *aliases} for canon, aliases in _NUMBER_NAMES.items())
+
+
+def repair_header(text: str) -> str:
+    """Lỗi OCR hay gặp ở tiêu đề: `ALTMI` là `ALT M1`, `ALTM1` dính chữ. Chỉ sửa đuôi M hoặc L theo sau là 1, I, l.
+
+    Chỉ dùng cho tiêu đề, không bao giờ cho số. Số khác 1 thì giữ nguyên, để `M7` không thành gì khác.
+    """
+    # Xét trên chữ gốc, giữ hoa thường: `Kali`, `Hill` là từ thường, đuôi `li`, `ll` không phải `L1`.
+    fixed = re.sub(r"(?:(?<=[A-Z]{2})|(?<=\s))([MLml])([0-9Ili])\b", lambda m: f" {m.group(1)}{'1' if m.group(2) in 'Ili' else m.group(2)}", str(text).strip())
+    return normalize_text(fixed)
 
 
 @dataclass
@@ -256,6 +300,8 @@ class _SourceColumn:
     index: int
     header: str
     values: list[SourceCell]
+    header_second: str | None = None
+    reads_agree: bool = True
 
     @property
     def kinds(self) -> Counter:
@@ -297,6 +343,7 @@ def _source_columns(source: SourceFacts) -> tuple[list[_SourceColumn], _Table | 
     if best is None:
         return [], None, None
     table, sheet = best
+    single_read = source.kind == "pdf_text"  # lớp chữ PDF chỉ có một lần đọc, là chữ thật trong file, không phải OCR
     columns = []
     for c in range(table.left, table.right + 1):
         path = table.paths.get(c) or ()
@@ -304,7 +351,11 @@ def _source_columns(source: SourceFacts) -> tuple[list[_SourceColumn], _Table | 
         if not header or phi_kind(header) or is_person_header(header):
             continue
         values = [cell for r in table.data_rows if (cell := table.grid.own(r, c)) is not None]
-        columns.append(_SourceColumn(c - 1, header, values))
+        top = table.grid.get(table.header_rows[-1], c)
+        second = top.read.second_text if top is not None and top.read is not None else None
+        # Tiêu đề từ ảnh: hai lần đọc phải cùng một nghĩa, nếu không thì không ghép theo tiêu đề này.
+        agree = single_read or top is None or top.read is None or (second is not None and repair_header(split_header_unit(header)[0]).replace(" ", "") == repair_header(split_header_unit(second)[0]).replace(" ", ""))
+        columns.append(_SourceColumn(c - 1, header, values, second, agree))
     return columns, table, sheet
 
 
@@ -454,14 +505,20 @@ def _weak_level_match(path: tuple[str, ...], value: str) -> bool:
     return head.group(1) != tail.group(1) and head.group(1) not in full and tail.group(1) not in full
 
 
-def infer_spec(template: SourceFacts, source: SourceFacts, accepted: frozenset[str] = frozenset(), *, experimental_image_sources: bool = False) -> SpecGuess:
+def infer_spec(template: SourceFacts, source: SourceFacts, accepted: frozenset[str] = frozenset(), *, column_choices: Mapping[str, str | None] | None = None, experimental_image_sources: bool = False, experimental_pdf_sources: bool = False) -> SpecGuess:
     """Đoán cách ghép giữa một biểu mẫu lạ và một nguồn. Chỉ điền cột số, cột chữ để người dùng tự viết.
 
     `accepted`: mã câu hỏi người dùng đã đồng ý với gợi ý, để chạy lại mà không hỏi nữa.
+    `column_choices`: người dùng tự chọn ở màn xác nhận, chữ cột biểu mẫu -> tiêu đề cột nguồn, `None` là để trống cột đó (US-1.13).
+    Lựa chọn của người thắng phần tự ghép, nhưng màu vẫn tối đa vàng khi chưa có hồ sơ, và đơn vị khác nhau vẫn đỏ.
     Còn câu hỏi thì `spec` là None: không có đề xuất nào từ một đoán chưa chắc.
     """
-    if source.kind != "xlsx" and not experimental_image_sources:
-        raise FeatureNotReleased("Đoán biểu mẫu từ ảnh và PDF")  # Q81
+    if source.kind == "pdf_text":
+        if not experimental_pdf_sources:
+            raise FeatureNotReleased("Đoán biểu mẫu từ PDF")  # Q98: cờ riêng, tách khỏi cờ ảnh
+    elif source.kind != "xlsx" and not experimental_image_sources:
+        raise FeatureNotReleased("Đoán biểu mẫu từ ảnh")  # Q81
+    token_source = source.kind != "xlsx"
     questions: list[Question] = []
 
     def ask(code: str, detail: str) -> None:
@@ -515,7 +572,11 @@ def infer_spec(template: SourceFacts, source: SourceFacts, accepted: frozenset[s
 
     paths = {c: table.paths.get(c, ()) for c in targets}
     path_counts = Counter(paths.values())
-    duplicated = [c for c in targets if path_counts[paths[c]] > 1]
+    choices = dict(column_choices or {})
+    unknown_letters = sorted(set(choices) - {get_column_letter(c) for c in targets})
+    if unknown_letters:
+        questions.append(Question(code="COLUMN_CHOICE_INVALID", detail=f"Biểu mẫu không có cột để điền: {', '.join(unknown_letters)}."))
+    duplicated = [c for c in targets if path_counts[paths[c]] > 1 and get_column_letter(c) not in choices]
     if duplicated:
         ask("COLUMN_NAME_REPEATED", f"Nhiều cột cùng tên: {', '.join(get_column_letter(c) for c in duplicated)}.")
 
@@ -530,7 +591,7 @@ def infer_spec(template: SourceFacts, source: SourceFacts, accepted: frozenset[s
 
     # Nguồn dạng ngang: mỗi cột số của nguồn là một cột của biểu mẫu, ví dụ `ABC M1` với `Abcxyz` / `Mức 1`.
     # Viết cho ảnh và PDF, chưa đo với Excel, nên đi cùng cờ (Q81).
-    wide_match = _match_wide_columns(paths, targets, number_cols) if experimental_image_sources and not dim_cols and not date_header_cols else {}
+    wide_match = _match_wide_columns(paths, targets, number_cols) if token_source and not dim_cols and not date_header_cols else {}
 
     fields: dict[str, dict] = {}
     field_name: dict[int, str] = {}
@@ -547,20 +608,49 @@ def infer_spec(template: SourceFacts, source: SourceFacts, accepted: frozenset[s
     value_columns: list[dict] = []
     guessed: list[GuessedColumn] = []
     weak: set[str] = set()
+    weak_letters: set[str] = set()
+    alternative_fields: set[str] = set()
     unmapped: list[int] = []
+    user_fields: set[str] = set()
     for c in targets:
         path = paths[c]
+        letter = get_column_letter(c)
         if c in duplicated:
             continue
+        chosen: _SourceColumn | None = None
+        if letter in choices:
+            header = choices[letter]
+            if header is None:
+                continue  # người dùng để trống cột này
+            matches = [col for col in number_cols if col.header == header]
+            if len(matches) != 1:
+                # Cột khóa, cột về người, cột chữ, hoặc hai cột cùng tên: không nhận, không đoán.
+                questions.append(Question(code="COLUMN_CHOICE_INVALID", detail=f"Không dùng được cột `{header}` cho cột {letter}: không có, hoặc có nhiều cột cùng tên, hoặc không phải cột số."))
+                continue
+            chosen = matches[0]
+            user_fields.add(field_of(chosen, True))
+            if not dim_cols and not date_header_cols:
+                value_columns.append({"column": letter, "field": field_of(chosen, True)})
+                guessed.append(GuessedColumn(letter=letter, col_path=tuple(str(p) for p in path), source_header=chosen.header, chosen_by_user=True))
+                continue
         direct = [col for col in number_cols if any(_same_number_name(str(p), col.header) for p in path)]
-        if c in wide_match and len(direct) != 1:
+        if len(direct) > 1:
+            # Nguồn có cùng tên, nhiều đơn vị: chỉ chọn được khi đúng một cột cùng đơn vị với biểu mẫu.
+            target_units = [u for p in path if (u := split_header_unit(str(p))[1])]
+            same = [col for col in direct if (u := split_header_unit(col.header)[1]) and any(same_unit(u, t) for t in target_units)]
+            direct = same if len(same) == 1 else direct
+        if chosen is None and c in wide_match and len(direct) != 1:
             col = wide_match[c]
             if _weak_level_match(path, col.header):
                 weak.add(f"{' / '.join(str(p) for p in path)} là {col.header}")
+                weak_letters.add(get_column_letter(c))
             value_columns.append({"column": get_column_letter(c), "field": field_of(col, True)})
             guessed.append(GuessedColumn(letter=get_column_letter(c), col_path=tuple(str(p) for p in path), source_header=col.header))
             continue
-        if len(direct) == 1 and not dim_cols and not date_header_cols:
+        if chosen is None and len(direct) == 1 and not dim_cols and not date_header_cols:
+            if _name_variants(path, direct[0], number_cols):
+                unmapped.append(c)  # T-AI-13: có cột như "Natri máy 1" bên cạnh "Natri": không tự chọn, để người dùng chọn
+                continue
             value_columns.append({"column": get_column_letter(c), "field": field_of(direct[0], True)})
             guessed.append(GuessedColumn(letter=get_column_letter(c), col_path=tuple(str(p) for p in path), source_header=direct[0].header))
             continue
@@ -574,6 +664,7 @@ def infer_spec(template: SourceFacts, source: SourceFacts, accepted: frozenset[s
             dims[field_of(col, True)] = scored_values[0][1]
             if _weak_level_match(path, scored_values[0][1]):
                 weak.add(f"{' / '.join(str(p) for p in path)} là {scored_values[0][1]}")
+                weak_letters.add(get_column_letter(c))
         if ok:
             for col in date_header_cols:
                 day = as_date(path[-1])
@@ -581,10 +672,12 @@ def infer_spec(template: SourceFacts, source: SourceFacts, accepted: frozenset[s
                     ok = False
                     break
                 dims[field_of(col, True)] = day.isoformat()
-        value_col = _value_column(number_cols)
+        value_col = chosen or _value_column(number_cols)
+        if ok and value_col is not None and chosen is None and len(number_cols) > 1:
+            alternative_fields.add(field_of(value_col, True))
         if ok and value_col is not None:
             value_columns.append({"column": get_column_letter(c), "field": field_of(value_col, True), "dims": dims})
-            guessed.append(GuessedColumn(letter=get_column_letter(c), col_path=tuple(str(p) for p in path), source_header=value_col.header, dims=dims))
+            guessed.append(GuessedColumn(letter=get_column_letter(c), col_path=tuple(str(p) for p in path), source_header=value_col.header, dims=dims, chosen_by_user=chosen is not None))
         else:
             unmapped.append(c)
 
@@ -603,13 +696,16 @@ def infer_spec(template: SourceFacts, source: SourceFacts, accepted: frozenset[s
     combos = Counter((v["field"], tuple(sorted(v.get("dims", {}).items()))) for v in value_columns)
     if any(count > 1 for count in combos.values()):
         ask("COLUMN_MAPPING_CONFLICT", "Nhiều cột của biểu mẫu ghép vào cùng một loại số.")
-    if unmapped:
-        ask("COLUMN_NOT_MAPPED", f"Chưa ghép được các cột: {', '.join(' / '.join(str(p) for p in paths[c]) or get_column_letter(c) for c in unmapped)}.")
+    unmapped_names = [" / ".join(str(p) for p in paths[c]) or get_column_letter(c) for c in unmapped]
+    # Q84: với ảnh, đề xuất cột đã ghép và hỏi riêng cột còn lại. Excel giữ cách cũ tới khi có số đo.
+    partial = token_source and bool(unmapped) and bool(value_columns)
+    if unmapped and not partial:
+        ask("COLUMN_NOT_MAPPED", f"Chưa ghép được các cột: {', '.join(unmapped_names)}.")
     if not value_columns:
         ask("NO_FILLABLE_COLUMN", "Không có cột nào của biểu mẫu ghép được với nguồn.")
 
     letters = lambda items: tuple(get_column_letter(c) for c in items)  # noqa: E731
-    base = SpecGuess(status="ask", questions=tuple(questions), columns=tuple(guessed), computed_columns=letters(computed), label_columns=letters(labels), manual_columns=letters([*manual, *notes]))
+    base = SpecGuess(status="ask", questions=tuple(questions), unmapped_columns=tuple(unmapped_names) if partial else (), open_columns=tuple(OpenColumn(letter=get_column_letter(c), col_path=tuple(str(p) for p in paths[c])) for c in unmapped), columns=tuple(guessed), computed_columns=letters(computed), label_columns=letters(labels), manual_columns=letters([*manual, *notes]))
     if not value_columns:
         return base
 
@@ -643,6 +739,10 @@ def infer_spec(template: SourceFacts, source: SourceFacts, accepted: frozenset[s
         "spec_id": f"inferred-{digest}",
         "version": 1,
         "origin": "inferred",
+        "spec_format": SPEC_FORMAT,
+        "user_chosen_fields": [],
+        "level_answer_columns": [],
+        "alternative_value_fields": [],
         "table": {
             "sheet": table.grid.name,
             "anchor": table.anchor,
@@ -666,22 +766,31 @@ def infer_spec(template: SourceFacts, source: SourceFacts, accepted: frozenset[s
         data["unit_field"] = field_of(unit_col, False)
     if lot_col is not None:
         data["lot_field"] = field_of(lot_col, False)
+    if user_fields:
+        data["user_chosen_fields"] = sorted(user_fields)
+    if alternative_fields:
+        data["alternative_value_fields"] = sorted(alternative_fields)
+    if weak_letters:
+        data["level_answer_columns"] = sorted(weak_letters & {v["column"] for v in value_columns})
     spec = load_spec(data)
     if questions:
         return base.model_copy(update={"questions": tuple(questions)})
-    return base.model_copy(update={"status": "ok", "spec": spec, "questions": ()})
+    return base.model_copy(update={"status": "partial" if partial else "ok", "spec": spec, "questions": ()})
 
 
 def _match_wide_columns(paths: dict[int, tuple], targets: list[int], number_cols: list[_SourceColumn]) -> dict[int, _SourceColumn]:
-    """Ghép một một giữa cột biểu mẫu và cột số của nguồn. Mọi từ của tiêu đề nguồn phải khớp tiêu đề biểu mẫu."""
+    """Ghép một một giữa cột biểu mẫu và cột số của nguồn. Mọi từ của tiêu đề nguồn phải khớp tiêu đề biểu mẫu.
+
+    Hai cột cùng ghép vào một cột nguồn thì bỏ cả hai: thà hỏi còn hơn đoán.
+    """
     out: dict[int, _SourceColumn] = {}
     used: Counter = Counter()
     for c in targets:
         hits = []
         for col in number_cols:
-            tokens = normalize_text(col.header).split()
-            # Tiêu đề OCR có thể dính chữ: `ABCM1` tách thành `ABC` và `M1`.
-            tokens = [t for word in tokens for t in (re.findall(r"[a-z]+|\d+", word) if re.fullmatch(r"[a-z]{3,}[a-z]\d+", word) is None else [word[:-2], word[-2:]])]
+            if not col.reads_agree:
+                continue
+            tokens = repair_header(split_header_unit(col.header)[0]).split()
             if tokens and all(_value_match(paths[c], t) for t in tokens):
                 hits.append(col)
         if len(hits) == 1:
@@ -694,7 +803,7 @@ def _value_column(number_cols: list[_SourceColumn]) -> _SourceColumn | None:
     """Cột số của nguồn dạng dọc. Nhiều cột thì phải có đúng một cột mang tên của kết quả."""
     if len(number_cols) == 1:
         return number_cols[0]
-    named = [c for c in number_cols if normalize_text(c.header) in {"ket qua", *_NUMBER_NAMES["ket qua"]}]
+    named = [c for c in number_cols if normalize_text(split_header_unit(c.header)[0]) in {"ket qua", *_NUMBER_NAMES["ket qua"]}]
     return named[0] if len(named) == 1 else None
 
 

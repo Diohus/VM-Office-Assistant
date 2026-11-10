@@ -195,7 +195,7 @@ def test_capability_error_comes_before_budget():
 
 
 def test_real_profiles_cannot_be_created_without_a_budget(monkeypatch):
-    profile = load_profile("openai-luna")
+    profile = load_profile("claude")
     assert profile.budget is not None and profile.budget.max_tokens_per_run > 0
     provider = create_provider(profile)
     assert isinstance(provider, BudgetedProvider)

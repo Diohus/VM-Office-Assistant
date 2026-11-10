@@ -61,6 +61,7 @@ class SourceSheet(BaseModel):
     name: str
     rows: tuple[tuple[SourceCell, ...], ...]
     merged: tuple[str, ...] = ()
+    printed_lines: tuple[str, ...] = ()  # dòng chữ ngoài bảng đọc từ ảnh, PDF, ví dụ dòng tổng in trên phiếu
 
 
 class SourceFacts(BaseModel):
@@ -73,6 +74,9 @@ class SourceFacts(BaseModel):
     hidden_sheets: int
     kind: Literal["xlsx", "pdf_text", "pdf_image", "image"] = "xlsx"
     low_quality: bool = False
+    handwriting_declared: bool = False  # R5b: người dùng khai báo ảnh có chữ viết tay (Q28)
+    pdf_text_verified: bool = False  # Q98: chỉ bước so lớp chữ với OCR được đặt cờ này. Hiện chưa có bước đó
+    scanned_text_layer: bool = False  # R11: lớp chữ PDF nằm trên ảnh quét, do bên đọc file phát hiện
 
 
 def _check_container(path: Path) -> None:

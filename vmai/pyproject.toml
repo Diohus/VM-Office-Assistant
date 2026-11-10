@@ -14,7 +14,7 @@ dependencies = [
 llm = ["openai>=3.42,<4", "anthropic>=2.4,<3"]
 pdf = ["pdfplumber>=0.11.10,<1"]
 ocr = ["rapidocr-onnxruntime>=1.4.4,<2", "opencv-python-headless>=4.10", "pillow>=11", "pypdfium2>=5,<6"]
-dev = ["pytest>=9,<10", "pip-audit>=2.9,<3", "truststore>=0.10,<1", "python-docx>=1.2,<2"]
+dev = ["pytest>=9,<10", "pip-audit>=2.9,<3", "truststore>=0.10,<1", "python-docx>=1.2,<2", "reportlab>=5.1,<6"]  # reportlab: fixtures/eval/make_fixtures.py
 
 [build-system]
 requires = ["setuptools>=70"]
