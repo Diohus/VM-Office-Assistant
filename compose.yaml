@@ -36,7 +36,7 @@ services:
       secrets: [machine_ca]
     environment:
       DATABASE_URL: postgresql://vm:${POSTGRES_PASSWORD:?Cần đặt POSTGRES_PASSWORD}@db:5432/vm
-    volumes: ["store:/store", "spool:/spool"]
+    volumes: ["store:/store", "spool:/spool", "lospool:/lospool"]
     networks: [internal]
     depends_on: [db, reader]
     healthcheck:
@@ -58,6 +58,17 @@ services:
     mem_limit: 4g
     pids_limit: 64
 
+  converter:
+    <<: *hardened
+    build:
+      context: .
+      dockerfile: workers/libreoffice/Dockerfile
+    network_mode: none
+    tmpfs: ["/tmp:size=512m,uid=1000,gid=1000", "/home/lo:size=64m,uid=1000,gid=1000"]
+    volumes: ["lospool:/spool"]
+    mem_limit: 2g
+    pids_limit: 256
+
   db:
     image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     restart: unless-stopped
@@ -78,4 +89,5 @@ networks:
 volumes:
   store: {}
   spool: {}
+  lospool: {}
   db: {}

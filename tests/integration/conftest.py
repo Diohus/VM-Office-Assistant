@@ -19,8 +19,8 @@ BASE = os.environ.get("VM_BASE", "http://127.0.0.1:8089")
 PROJECT = os.environ.get("VM_PROJECT", "vm-office-test")
 
 
-def request(method: str, path: str, data: bytes | None = None, timeout: int = 130):
-    req = urllib.request.Request(BASE + path, data=data, method=method)
+def request(method: str, path: str, data: bytes | None = None, timeout: int = 130, headers: dict | None = None):
+    req = urllib.request.Request(BASE + path, data=data, method=method, headers=headers or {})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as res:
             return res.status, dict(res.headers), res.read()

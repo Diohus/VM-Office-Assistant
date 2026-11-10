@@ -4,7 +4,7 @@ COPY backend/requirements.lock /tmp/requirements.lock
 # CA của máy chỉ dùng lúc build, không nằm trong image. Gói được kiểm theo hash trong lockfile.
 RUN --mount=type=secret,id=machine_ca sh -c 'cat /etc/ssl/certs/ca-certificates.crt /run/secrets/machine_ca > /tmp/ca.pem && pip install --no-cache-dir --root-user-action=ignore --cert /tmp/ca.pem --require-hashes --no-deps -r /tmp/requirements.lock && rm /tmp/ca.pem /tmp/requirements.lock'
 COPY backend/app /opt/app/app
-RUN useradd -u 1000 -m vm && mkdir -p /store /spool && chown 1000:1000 /store /spool
+RUN useradd -u 1000 -m vm && mkdir -p /store /spool /lospool && chown 1000:1000 /store /spool /lospool
 USER 1000
 WORKDIR /opt/app
 ENV PYTHONDONTWRITEBYTECODE=1

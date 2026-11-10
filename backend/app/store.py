@@ -1,4 +1,4 @@
-"""Kho file theo SHA-256. Không ghi đè: một hash luôn ứng với đúng một nội dung."""
+"""Kho file theo SHA-256. File xlsx không bao giờ bị ghi đè: một hash luôn ứng với đúng một nội dung."""
 from __future__ import annotations
 
 import hashlib
@@ -19,9 +19,7 @@ def _path(sha: str, suffix: str):
     return folder / f"{sha}{suffix}"
 
 
-def _put(path, data: bytes) -> None:
-    if path.exists():
-        return
+def _write(path, data: bytes) -> None:
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     with os.fdopen(fd, "wb") as fh:
         fh.write(data)
@@ -33,8 +31,18 @@ def _put(path, data: bytes) -> None:
 def put_new(sha: str, data: bytes, grid_json: bytes) -> None:
     if hashlib.sha256(data).hexdigest() != sha:
         raise ValueError("Nội dung không khớp hash")
-    _put(_path(sha, ".xlsx"), data)
-    _put(_path(sha, ".grid.json"), grid_json)
+    file_path = _path(sha, ".xlsx")
+    if not file_path.exists():
+        _write(file_path, data)
+    # Dữ liệu lưới là kết quả dịch, không phải nguồn sự thật: bộ dịch đổi thì phải ghi lại, nếu không app dùng bản dịch cũ.
+    _write(_path(sha, ".grid.json"), grid_json)
+
+
+def put_original(sha: str, data: bytes) -> None:
+    """Bản gốc của file đời cũ. Chỉ lưu để không mất, không đưa cho thư viện đọc nào."""
+    path = _path(sha, ".original")
+    if not path.exists():
+        _write(path, data)
 
 
 def read(sha: str) -> bytes:

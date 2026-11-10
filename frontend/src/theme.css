@@ -41,6 +41,28 @@ body { font-family: "Segoe UI", Arial, sans-serif; font-size: 14px; color: var(-
 .btn:hover { filter: brightness(1.08); }
 .btn-plain { background: none; border: 0; color: var(--navy-2); text-decoration: underline; cursor: pointer; font: inherit; padding: 0 4px; }
 
+.side-btn:disabled { opacity: .5; cursor: default; }
+.doc-dirty { font-weight: 600; white-space: nowrap; }
+.recent { width: 100%; max-width: 640px; text-align: left; max-height: 40vh; overflow-y: auto; }
+.recent h2 { font-size: 14px; margin: 8px 0; color: var(--navy); }
+.recent ul { list-style: none; margin: 0; padding: 0; }
+.recent li { padding: 4px 0; }
+.doc-user { margin-left: auto; opacity: .85; white-space: nowrap; }
+.btn-line { background: var(--surface); color: var(--navy); border: 1px solid var(--navy); border-radius: 4px; padding: 6px 12px; font: inherit; cursor: pointer; }
+.btn:disabled, .btn-line:disabled { opacity: .5; cursor: default; }
+.editbar { flex: none; display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--border); }
+.versions { width: 300px; flex: none; border-left: 1px solid var(--border); overflow: auto; padding: 8px 12px; }
+.versions h2, .dialog h2 { font-size: 16px; margin: 4px 0 8px; color: var(--navy); }
+.versions ul { margin: 0; padding: 0; list-style: none; }
+.versions li { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.versions li.current .v-title { color: var(--navy-2); }
+.v-title { font-weight: 600; }
+.v-meta { color: var(--text-muted); font-size: 13px; }
+.dialog-back { position: fixed; inset: 0; background: rgba(11, 37, 69, .4); display: flex; align-items: center; justify-content: center; z-index: 2000; padding: 16px; }
+.dialog { background: var(--surface); border-radius: 6px; padding: 16px 20px; max-width: 520px; width: 100%; }
+.dialog-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.text-input { display: block; width: 100%; margin-top: 8px; padding: 6px 8px; font: inherit; border: 1px solid var(--border); border-radius: 4px; }
+
 .notices { flex: none; display: flex; flex-direction: column; }
 .notice { display: flex; align-items: flex-start; gap: 8px; padding: 6px 12px; background: var(--notice-bg); border-bottom: 1px solid var(--border); }
 .notice.warn { background: #fdf3e0; }

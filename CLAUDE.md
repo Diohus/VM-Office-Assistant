@@ -2,6 +2,10 @@
 
 Áp dụng cho mọi phiên làm việc trong repo này.
 
+## Bắt đầu phiên
+
+Đội có 4 vai trò, mỗi vai trò một phiên: PM, PO/BA, Dev, AI Engineer. Bộ nhớ chung ở `project-memory/`. Mở phiên mới thì chạy `/role-init <pm|po_ba|dev|ai_engineer>`, hoặc đọc `project-memory/roles/<vai-trò>.md` rồi làm theo. Lịch sử hội thoại không phải nguồn quyết định. Mỗi vai trò chỉ đọc phần liên quan tới việc của mình. Tìm tài liệu qua `project-memory/index.md`.
+
 ## Commit và push (khách hàng yêu cầu, 03/11/2026)
 
 - Tác giả commit: `Diohus`, `nguyenkhanhdo27@gmail.com`.

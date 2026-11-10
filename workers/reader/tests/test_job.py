@@ -85,6 +85,7 @@ def test_external_link_part_duoc_quet(tmp_path):
 @pytest.mark.parametrize("name,code", [
     ("GIA-X19_co_mat_khau.xlsx", "FILE_PASSWORD"),
     ("GIA-QC-01_da_dien_doi_cu.xls", "FILE_LEGACY_XLS"),
+    ("GIA-X19_xls_mat_khau.xls", "FILE_PASSWORD"),
     ("GIA-X19_hong.xlsx", "FILE_CORRUPT"),
     ("GIA-QT-03_quy_trinh_doi_cu.doc", "FILE_UNSUPPORTED"),
 ])

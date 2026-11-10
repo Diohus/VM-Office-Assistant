@@ -1,6 +1,7 @@
 *
 !backend/
 !workers/reader/
+!workers/libreoffice/
 !vmai/src/vmai/
 !frontend/
 **/.venv

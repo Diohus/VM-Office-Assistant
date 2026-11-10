@@ -30,7 +30,7 @@ MSG_PASSWORD = "File đang khóa bằng mật khẩu nên app không mở đư�
 
 def _unsupported(ext: str) -> str:
     kind = f"là {ext}" if ext else "không có đuôi rõ ràng"
-    return f"App chỉ mở được file .xlsx, còn file của bạn {kind}. File của bạn không bị đổi. Hãy chọn file khác."
+    return f"App chỉ mở được file Excel .xlsx, .xlsm và .xls, còn file của bạn {kind}. File của bạn không bị đổi. Hãy chọn file khác."
 
 
 class Rejected(Exception):
@@ -51,6 +51,21 @@ def _extension(filename: str) -> str:
     return posixpath.splitext(filename.replace("\\", "/"))[1].lower()
 
 
+def _xls_has_password(data: bytes) -> bool:
+    """Trong .xls, bản ghi FILEPASS (0x002F) đứng ngay sau BOF nếu file có mật khẩu mở."""
+    with olefile.OleFileIO(io.BytesIO(data)) as ole:
+        head = ole.openstream("Workbook").read(4096)
+    pos = 0
+    for _ in range(8):
+        if pos + 4 > len(head):
+            return False
+        kind, size = int.from_bytes(head[pos:pos + 2], "little"), int.from_bytes(head[pos + 2:pos + 4], "little")
+        if kind == 0x002F:
+            return True
+        pos += 4 + size
+    return False
+
+
 def _reject_ole(data: bytes, filename: str) -> None:
     """File OLE2 có thể là xlsx có mật khẩu, .xls, .doc... phải nhìn tên luồng mới phân biệt được."""
     try:
@@ -62,6 +77,8 @@ def _reject_ole(data: bytes, filename: str) -> None:
     finally:
         ole.close()
     if {"EncryptedPackage", "EncryptionInfo"} & streams:
+        raise Rejected("FILE_PASSWORD", MSG_PASSWORD)
+    if "Workbook" in streams and _xls_has_password(data):
         raise Rejected("FILE_PASSWORD", MSG_PASSWORD)
     if {"Workbook", "Book"} & streams:
         raise Rejected("FILE_LEGACY_XLS", "Đây là file Excel đời cũ (.xls), app hiện chưa mở được. File của bạn không bị đổi. Hãy mở bằng Excel, lưu thành .xlsx rồi tải lại.")

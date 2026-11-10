@@ -93,25 +93,13 @@ res.layout = await page.evaluate(() => {
   };
 });
 
-// Xuất: bấm nút thật, so hash file tải về.
-const [download] = await Promise.all([page.waitForEvent('download'), page.click('.sidebar a.side-btn')]);
+// Xuất: bấm nút thật, qua hộp xác nhận, so hash file tải về.
+await page.click('.sidebar .side-btn:has-text("Xuất")');
+res.export_dialog_unmodified = await page.textContent('.dialog-body');
+const [download] = await Promise.all([page.waitForEvent('download'), page.click('.dialog-actions button:has-text("Tải file Excel")')]);
 const dlPath = path.join(OUT, 'xuat.xlsx');
 await download.saveAs(dlPath);
 res.download = { name: download.suggestedFilename(), sha256: crypto.createHash('sha256').update(fs.readFileSync(dlPath)).digest('hex') };
-
-// Bản xem không sửa được: gõ phím vào ô thật.
-await page.evaluate(() => window.vmGrid.goTo('KQ_QC_Thang', 'B8'));
-const before = await page.evaluate(() => window.vmGrid.value('KQ_QC_Thang', 'B8'));
-const canvasBox = await page.$eval('.grid-host canvas', (c) => { const b = c.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; });
-await page.mouse.dblclick(canvasBox.x + 200, canvasBox.y + 220);
-await page.keyboard.type('123');
-await page.keyboard.press('Enter');
-await sleep(300);
-await page.evaluate(() => window.vmGrid.goTo('KQ_QC_Thang', 'B8'));
-await page.keyboard.type('123');
-await page.keyboard.press('Enter');
-await sleep(300);
-res.read_only = { before, after: await page.evaluate(() => window.vmGrid.value('KQ_QC_Thang', 'B8')) };
 
 // Biểu mẫu đã điền.
 const dd = await inspect('GIA-QC-01_da_dien.xlsx', path.join(FIX, 'GIA-QC-01_da_dien.xlsx'));
@@ -141,7 +129,7 @@ await inspect('GIA-X19_sheet_khoa.xlsx', path.join(FIX, 'GIA-X19_sheet_khoa.xlsx
 
 // Lỗi liên tiếp, rồi mở file đúng trên cùng một trang.
 fs.writeFileSync(path.join(OUT, 'ghi_chu.txt'), 'khong phai excel');
-for (const name of ['GIA-X19_co_mat_khau.xlsx', 'GIA-X19_hong.xlsx', 'GIA-QC-01_da_dien_doi_cu.xls']) res.error_sequence[name] = await expectError(path.join(FIX, name));
+for (const name of ['GIA-X19_co_mat_khau.xlsx', 'GIA-X19_hong.xlsx']) res.error_sequence[name] = await expectError(path.join(FIX, name));
 res.error_sequence['ghi_chu.txt'] = await expectError(path.join(OUT, 'ghi_chu.txt'));
 await open(qcPath);
 res.recovered_doc = await page.textContent('[data-testid=doc-name]');

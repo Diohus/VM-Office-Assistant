@@ -1,4 +1,5 @@
-# Commit đầu tiên (Q60, Q74). Dòng thường là đường dẫn được đưa vào, dòng bắt đầu bằng ! là loại ra.
+# Danh sách commit (Q60, Q74). Dòng thường là đường dẫn được đưa vào, dòng bắt đầu bằng ! là loại ra.
+# Commit M2 (10/11): bỏ các dòng loại trừ phần M2 (writer, xlsxpatch, workers/libreoffice, q48_check) vì M2 đã nối vào app.
 # Kho còn công khai nên không gồm: chat_log.md, customer_versions.txt, output_natural.txt, project_requirement.txt, docs/, spikes/.
 .dockerignore
 .gitignore
@@ -13,15 +14,4 @@ tests/
 tools/
 fixtures/
 
-# Phần M2 đang làm, chưa nối vào app: không vào commit M1.
-!workers/libreoffice/
-!workers/reader/reader/writer.py
-!workers/reader/reader/xlsxpatch.py
-!workers/reader/tests/test_writer.py
-!tools/excel_check/q48_check.py
-!tools/excel_check/results/q48*.json
-
-# Q81: luồng ảnh chưa phát hành, AI Engineer giữ ngoài commit đầu.
-!vmai/src/vmai/ocr.py
-!vmai/src/vmai/table_read.py
-!vmai/eval/run_images.py
+# Q128: bỏ loại trừ Q81 (ocr.py, table_read.py, run_images.py). Thiếu chúng thì test lõi của vmai lỗi nạp. Luồng ảnh vẫn sau cờ tắt.

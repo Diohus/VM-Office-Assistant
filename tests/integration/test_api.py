@@ -26,7 +26,7 @@ def test_xuat_lai_giong_het_tung_byte_va_ten_khac(name):
 @pytest.mark.parametrize("name,code,status", [
     ("GIA-X19_co_mat_khau.xlsx", "FILE_PASSWORD", 422),
     ("GIA-X19_hong.xlsx", "FILE_CORRUPT", 422),
-    ("GIA-QC-01_da_dien_doi_cu.xls", "FILE_LEGACY_XLS", 422),
+    ("GIA-X19_xls_mat_khau.xls", "FILE_PASSWORD", 422),
 ])
 def test_loi_tung_loai(name, code, status):
     got, body = upload((FIX / name).read_bytes(), name)

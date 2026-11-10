@@ -276,6 +276,8 @@ def translate(path, pkg: Package) -> dict:
                 sid = styles.of(c) if c.has_style else None
                 if sid is not None:
                     item["s"] = sid
+                if ws.protection.sheet and not c.protection.locked:
+                    item["unlocked"] = 1
                 if hasattr(val, "text"):      # công thức mảng
                     val = val.text
                 elif val is not None and val.__class__.__name__ == "DataTableFormula":
@@ -316,6 +318,7 @@ def translate(path, pkg: Package) -> dict:
         sheets.append({
             "name": ws.title,
             "hidden": ws.sheet_state != "visible",
+            "protected": bool(ws.protection.sheet),
             "rows": max(ws.max_row, MIN_ROWS),
             "cols": max(ws.max_column, MIN_COLS),
             "cells": cells,

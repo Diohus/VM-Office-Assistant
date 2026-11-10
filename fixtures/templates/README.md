@@ -15,6 +15,7 @@ Sinh lại bằng `spikes/editor/gen_fixtures.py` và `run_x19.py`, `run_lo.py`.
 | `GIA-X18_ham_mang.xlsx` | X18: `WEBSERVICE`, liên kết ngoài. Không dùng trên máy có mạng ngoài kiểm soát |
 | `GIA-X18b_lien_ket_ngoai.xlsx` | X18: liên kết ngoài thật, có phần `xl/externalLinks`, `I9` chỉ lộ liên kết qua tên vùng. Sinh bằng `tools/excel_check/make_external_link.py` |
 | `GIA-X19_co_mat_khau.xlsx` | X19: file có mật khẩu giả `matkhau-gia` |
+| `GIA-X19_xls_mat_khau.xls` | X19: file đời cũ có mật khẩu giả `matkhau-gia`. Sinh bằng `tools/excel_check/make_xls_password.py` |
 | `GIA-X19_khong_co_vba.xlsm` | X19: đuôi `.xlsm`, **không có VBA thật** |
 | `GIA-X19_hong.xlsx` | X19: file bị cắt ngang, không mở được |
 | `GIA-X19_sheet_khoa.xlsx` | Sheet có khóa, mật khẩu giả `khoa-gia` |

@@ -20,6 +20,7 @@ JOB_TIMEOUT_SECONDS = int(os.environ.get("JOB_TIMEOUT_SECONDS", "90"))
 MEMORY_LIMIT_BYTES = int(os.environ.get("JOB_MEMORY_BYTES", str(3 * 1024 ** 3)))
 MAX_OUTPUT_BYTES = 1024 ** 3
 STALE_SECONDS = 600
+CHILD_ARGS = ["-m", "reader.child"]
 SWEEP_EVERY_SECONDS = 60
 
 
@@ -38,14 +39,14 @@ def _write_atomic(path: pathlib.Path, text: str) -> None:
 
 
 def _failed(reason: str) -> str:
-    return json.dumps({"ok": False, "code": "FILE_NOT_READABLE", "message": "App không đọc xong file này trong thời gian cho phép. File của bạn không bị đổi. Hãy thử lại, hoặc hỏi người quản lý app nếu vẫn không được.", "detail": {"reason": reason}})
+    return json.dumps({"ok": False, "code": "FILE_NOT_READABLE", "message": "App không xử lý xong file này trong thời gian cho phép. File của bạn không bị đổi. Hãy thử lại, hoặc hỏi người quản lý app nếu vẫn không được.", "detail": {"reason": reason}})
 
 
 def _run_job(job: pathlib.Path) -> None:
     job_id = job.name.removesuffix(".job")
     out = SPOOL / f"{job_id}.out.json"
     try:
-        proc = subprocess.run([sys.executable, "-m", "reader.child", str(SPOOL / f"{job_id}.xlsx"), str(job), str(out)],
+        proc = subprocess.run([sys.executable, *CHILD_ARGS, str(SPOOL / f"{job_id}.xlsx"), str(job), str(out)],
                               env={"PATH": "/usr/bin:/bin", "PYTHONPATH": os.environ.get("PYTHONPATH", ""), "HOME": "/tmp"},
                               preexec_fn=_limits, timeout=JOB_TIMEOUT_SECONDS, capture_output=True)
         # Không xét việc file kết quả còn hay không: API có thể đã lấy và xóa nó ngay khi tiến trình con vừa ghi.

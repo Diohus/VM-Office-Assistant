@@ -1,0 +1,61 @@
+{
+ "app": {
+  "version": 2,
+  "external": [
+   {
+    "kind": "external_link",
+    "part": "xl/externalLinks/_rels/externalLink1.xml.rels",
+    "target": "GIA-X18_nguon_ngoai.xlsx"
+   },
+   {
+    "kind": "external_link",
+    "part": "xl/externalLinks/_rels/externalLink1.xml.rels",
+    "target": "GIA-X18_nguon_ngoai.xlsx"
+   }
+  ]
+ },
+ "modes": {
+  "khong_cap_nhat_lien_ket": {
+   "formula_cells": 152,
+   "links_goc": {
+    "I8": 1.23,
+    "I9": 4.56
+   },
+   "links_xuat": {
+    "I8": 1.23,
+    "I9": 4.56
+   },
+   "diffs": [],
+   "diff_count": 0,
+   "error_cells_xuat": []
+  },
+  "dong_y_cap_nhat_lien_ket": {
+   "formula_cells": 152,
+   "links_goc": {
+    "I8": 1.23,
+    "I9": 4.56
+   },
+   "links_xuat": {
+    "I8": 1.23,
+    "I9": 4.56
+   },
+   "diffs": [],
+   "diff_count": 0,
+   "error_cells_xuat": []
+  },
+  "tinh_lai_het": {
+   "formula_cells": 152,
+   "links_goc": {
+    "I8": 1.23,
+    "I9": 4.56
+   },
+   "links_xuat": {
+    "I8": 1.23,
+    "I9": 4.56
+   },
+   "diffs": [],
+   "diff_count": 0,
+   "error_cells_xuat": []
+  }
+ }
+}

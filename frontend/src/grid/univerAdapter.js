@@ -1,5 +1,5 @@
 // Nơi duy nhất được import Univer. Chỉ dùng gói Apache-2.0, không có gói Pro nào.
-import { createUniver, LocaleType, mergeLocales } from '@univerjs/presets';
+import { createUniver, IUndoRedoService, LocaleType, mergeLocales } from '@univerjs/presets';
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core';
 import coreVi from '@univerjs/preset-sheets-core/locales/vi-VN';
 import { UniverSheetsConditionalFormattingPreset } from '@univerjs/preset-sheets-conditional-formatting';
@@ -13,6 +13,9 @@ import '@univerjs/preset-sheets-conditional-formatting/lib/index.css';
 import '@univerjs/preset-sheets-data-validation/lib/index.css';
 import '@univerjs/preset-sheets-drawing/lib/index.css';
 import './univerOverrides.css';
+import { parseTypedNumber } from './typedNumber.js';
+import { NUMFMT_LOCALE, usesOtherDecimal } from '../numberFormat.js';
+import { cellsFromHtml, cellsFromText, interpretTable } from './pastedTable.js';
 
 const HA = { left: 1, center: 2, right: 3 };
 const VA = { top: 1, center: 2, bottom: 3 };
@@ -221,14 +224,26 @@ async function applyImages(wb, model) {
   return problems;
 }
 
-export function createGrid(container, model) {
+// Chữ người dùng gõ có phải là số đang hiện khi sửa (đã bị cắt còn 12 chữ số) được sửa thêm không: F2, nhấp đúp, thanh công thức.
+// Không dựa vào sự kiện bắt đầu sửa vì không đáng tin (đo 10/11). Phần đầu và phần cuối trùng gần hết là sửa trên số đang hiện;
+// gõ thẳng một số mới thì không, vì số mới thay hẳn số cũ, không có chữ số nào bị cắt.
+function editsShown(typed, shown) {
+  const a = String(typed ?? '').trim().replace(',', '.');
+  let head = 0;
+  while (head < a.length && head < shown.length && a[head] === shown[head]) head++;
+  let tail = 0;
+  while (tail < a.length - head && tail < shown.length - head && a[a.length - 1 - tail] === shown[shown.length - 1 - tail]) tail++;
+  return head + tail >= shown.length - 3;
+}
+
+export function createGrid(container, model, { readOnly = false, onAmbiguousNumber, onDecimalSwapped, onHiddenDigits, onLockedCell, onPasted, onChange, onEditDone } = {}) {
   const { univer, univerAPI } = createUniver({
     locale: LocaleType.VI_VN,
     locales: { [LocaleType.VI_VN]: mergeLocales(coreVi, cfVi, dvVi, drawVi) },
     presets: [
       UniverSheetsCorePreset({
         container,
-        header: false,
+        header: true,
         toolbar: false,
         contextMenu: false,
         formulaBar: true,
@@ -241,23 +256,34 @@ export function createGrid(container, model) {
     ],
   });
   const wb = univerAPI.createWorkbook(toSnapshot(model));
+  // Cách hiện số theo dấu thập phân của app (numberFormat.js, Q122). Chữ giao diện vẫn tiếng Việt.
+  wb.setNumfmtLocal(NUMFMT_LOCALE);
+  const undoRedo = univer.__getInjector().get(IUndoRedoService);
+  let lastTyped = null;
+  let undoBatch = null;
+  let typedCount = 0;
+  const endUndoBatch = () => {
+    undoBatch?.dispose();
+    undoBatch = null;
+  };
   const problems = applyRules(univerAPI, wb, model);
   const imagesDone = applyImages(wb, model).then((p) => {
     problems.push(...p);
-    wb.setEditable(false);
+    wb.setEditable(!readOnly);
   });
 
   const sheetIdByName = (name) => wb.getSheetByName(name)?.getSheetId();
   const rawValue = (snapshot, sheetId, r, c) => snapshot.sheets[sheetId]?.cellData?.[r]?.[c]?.v ?? null;
 
-  // Bộ tính chạy nền và có thể chạy nhiều lượt. Tính xong khi mọi ô công thức có số đã lưu đều có kết quả,
+  // Bộ tính chạy nền và có thể chạy nhiều lượt. Tính xong khi mọi ô công thức đều có kết quả,
   // hoặc số ô chưa có kết quả không giảm nữa (công thức thật sự ra rỗng thì phải dừng, không chờ mãi).
+  // Xét cả ô không có số đã lưu: file do app ghi không có số nào, nếu bỏ qua thì coi như tính xong ngay.
   async function waitForCalculation() {
     const pending = (snap) => {
       let n = 0;
       for (const sh of model.sheets) {
         const id = sheetIdByName(sh.name);
-        for (const c of sh.cells) if (c.f && c.excel_v !== null && c.excel_v !== undefined && c.excel_v !== '' && rawValue(snap, id, c.r, c.c) === null) n++;
+        for (const c of sh.cells) if (c.f && c.excel_v !== '' && rawValue(snap, id, c.r, c.c) === null) n++;
       }
       return n;
     };
@@ -265,6 +291,7 @@ export function createGrid(container, model) {
     let stableSince = Date.now();
     const deadline = Date.now() + CALC_DEADLINE_MS;
     for (;;) {
+      if (disposed) return null;
       const snap = wb.save();
       const n = pending(snap);
       if (n === 0 || Date.now() > deadline) return snap;
@@ -278,8 +305,251 @@ export function createGrid(container, model) {
     }
   }
 
+  // Mẫu số của ô General phụ thuộc giá trị, nên phải tính lại sau mỗi lần tính. Dùng lệnh không vào lịch sử hoàn tác.
+  const fixedPattern = new Set();
+  model.sheets.forEach((sh) => sh.cells.forEach((c) => {
+    if (c.s !== undefined && model.styles[c.s].nf) fixedPattern.add(`${sh.name}!${c.r},${c.c}`);
+  }));
+  const applied = new Map();
+  let refreshTimer = null;
+  let disposed = false;
+  function refreshGeneralPatterns() {
+    if (disposed) return;
+    const snap = wb.save();
+    for (const ws of wb.getSheets()) {
+      const name = ws.getSheetName();
+      const sh = model.sheets.find((x) => x.name === name);
+      const colChars = sh ? colCharsOf(sh) : () => DEFAULT_COL_CHARS;
+      const data = snap.sheets[ws.getSheetId()]?.cellData ?? {};
+      const cellValue = {};
+      let changed = false;
+      for (const [r, row] of Object.entries(data)) {
+        for (const [c, cell] of Object.entries(row)) {
+          const key = `${name}!${r},${c}`;
+          if (fixedPattern.has(key) || typeof cell?.v !== 'number') continue;
+          const pattern = generalPattern(cell.v, colChars(Number(c))) ?? (applied.has(key) ? '0' : null);
+          if (!pattern || applied.get(key) === pattern) continue;
+          applied.set(key, pattern);
+          (cellValue[r] ||= {})[c] = { s: { n: { pattern } } };
+          changed = true;
+        }
+      }
+      if (changed) univerAPI.executeCommand('sheet.mutation.set-range-values', { unitId: wb.getId(), subUnitId: ws.getSheetId(), cellValue });
+    }
+  }
+  const scheduleRefresh = () => {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(refreshGeneralPatterns, 50);
+  };
+  const calcListener = univerAPI.getFormula().calculationResultApplied(scheduleRefresh);
+
+  const lockedAt = (name, r, c) => {
+    const sh = model.sheets.find((x) => x.name === name);
+    if (!sh?.protected) return false;
+    return !sh.cells.some((x) => x.r === r && x.c === c && x.unlocked);
+  };
+  const a1Of = a1;
+  const patternOf = (name, r, c) => {
+    const cell = model.sheets.find((x) => x.name === name)?.cells.find((x) => x.r === r && x.c === c);
+    return cell && cell.s !== undefined ? model.styles[cell.s].nf ?? null : null;
+  };
+  univerAPI.addEvent(univerAPI.Event.BeforeSheetEditStart, (p) => {
+    const name = p.worksheet.getSheetName();
+    if (lockedAt(name, p.row, p.column)) {
+      p.cancel = true;
+      onLockedCell?.({ sheet: name, cell: a1Of(p.row, p.column) });
+    }
+  });
+  // Chỉ coi là sửa khi người dùng đã gõ. F2 rồi Enter không được đổi số, kể cả khi ô đang hiện làm tròn.
+  let typedInEditor = false;
+  let hiddenAsked = null;
+  univerAPI.addEvent(univerAPI.Event.SheetEditChanging, () => {
+    typedInEditor = true;
+    hiddenAsked = null; // đổi gì sau khi đã hỏi thì phải hỏi lại
+  });
+  univerAPI.addEvent(univerAPI.Event.BeforeSheetEditEnd, (p) => {
+    if (!p.isConfirm || !typedInEditor) return;
+    const text = p.value?.toPlainText?.();
+    const parsed = parseTypedNumber(text);
+    if (parsed.kind === 'ambiguous' || parsed.kind === 'unclear') {
+      p.cancel = true;
+      onAmbiguousNumber?.({ sheet: p.worksheet.getSheetName(), cell: a1Of(p.row, p.column), text: parsed.text, unclear: parsed.kind === 'unclear' });
+      return;
+    }
+    // Q122: số cũ có nhiều chữ số hơn ô đang sửa hiện. Lần Enter đầu chỉ hỏi; lần sau, không đổi gì, mới ghi.
+    // Lúc đang sửa, getCellData() trả chuỗi đã cắt (đo 10/11: "3.141592654"), nên đọc số gốc từ bản lưu của sổ.
+    if (parsed.kind !== 'number') return;
+    const full = rawValue(wb.save(), p.worksheet.getSheetId(), p.row, p.column);
+    if (parsed.kind !== 'number' || typeof full !== 'number') return;
+    const shown = Number(full.toPrecision(12));
+    if (shown === full || parsed.value === full || !editsShown(text, String(shown))) return;
+    const key = `${p.worksheet.getSheetId()}!${p.row},${p.column}`;
+    if (hiddenAsked?.key === key && hiddenAsked.text === text) {
+      hiddenAsked = null;
+      return;
+    }
+    p.cancel = true;
+    hiddenAsked = { key, text };
+    onHiddenDigits?.({ sheet: p.worksheet.getSheetName(), cell: a1Of(p.row, p.column), full, shown, next: parsed.value });
+  });
+  univerAPI.addEvent(univerAPI.Event.BeforeSheetEditEnd, (p) => {
+    lastTyped = p.isConfirm && typedInEditor ? { ws: p.worksheet, row: p.row, column: p.column, text: p.value?.toPlainText?.() } : null;
+    // Ghi ô và sửa số ở dưới phải là một bước hoàn tác: hoàn tác về số cũ, làm lại ra số đúng.
+    endUndoBatch();
+    if (lastTyped && parseTypedNumber(lastTyped.text).kind === 'number') undoBatch = undoRedo.beginUndoRedoGroup(wb.getId(), `typed-${++typedCount}`, 'replace');
+  });
+  univerAPI.addEvent(univerAPI.Event.SheetEditEnded, (p) => {
+    // Gõ phím thẳng vào ô không qua sự kiện bắt đầu sửa, nên ô khóa phải được trả lại ở đây. Lưu vẫn bị backend từ chối.
+    if (p.isConfirm && lockedAt(p.worksheet.getSheetName(), p.row, p.column)) {
+      typedInEditor = false;
+      endUndoBatch();
+      lastTyped = null;
+      onLockedCell?.({ sheet: p.worksheet.getSheetName(), cell: a1Of(p.row, p.column) });
+      setTimeout(() => univerAPI.undo(), 0);
+      return;
+    }
+    if (p.isConfirm && lastTyped && lastTyped.row === p.row && lastTyped.column === p.column) {
+      const parsed = parseTypedNumber(lastTyped.text);
+      // Thư viện hiểu số theo kiểu Mỹ, 5,5 thành 55. Đổi về đúng số theo chữ người dùng đã gõ.
+      const current = p.worksheet.getRange(p.row, p.column).getCellData()?.v;
+      if (parsed.kind === 'number' && current !== parsed.value) p.worksheet.getRange(p.row, p.column).setValue(parsed.value);
+      // Gõ số lẻ bằng dấu khác dấu của app, ví dụ 5,5 khi app dùng dấu chấm: đã ghi 5.5, báo để người dùng biết (Q122).
+      if (parsed.kind === 'number' && usesOtherDecimal(lastTyped.text)) onDecimalSwapped?.({ sheet: p.worksheet.getSheetName(), cell: a1Of(p.row, p.column), text: lastTyped.text.trim(), value: parsed.value });
+      // Thư viện tự đoán mẫu số khi gõ, có thể làm ô 0.00 hiện 5.51 thành 6. Trả lại đúng mẫu của biểu mẫu.
+      const nf = patternOf(p.worksheet.getSheetName(), p.row, p.column);
+      if (parsed.kind === 'number' && nf) {
+        univerAPI.executeCommand('sheet.mutation.set-range-values', { unitId: wb.getId(), subUnitId: p.worksheet.getSheetId(), cellValue: { [p.row]: { [p.column]: { s: { n: { pattern: nf } } } } } });
+      }
+    }
+    endUndoBatch();
+    lastTyped = null;
+    typedInEditor = false;
+    hiddenAsked = null;
+    if (p.isConfirm) onEditDone?.();
+    scheduleRefresh();
+  });
+
+  // Báo App khi nội dung hoặc trạng thái đang gõ đổi, gộp lại vì mỗi lần kiểm phải đọc cả bảng.
+  let changeTimer = null;
+  univerAPI.addEvent(univerAPI.Event.CommandExecuted, (e) => {
+    if (e.id !== 'sheet.mutation.set-range-values' && e.id !== 'sheet.operation.set-cell-edit-visible') return;
+    clearTimeout(changeTimer);
+    changeTimer = setTimeout(() => {
+      if (!disposed) onChange?.();
+    }, 150);
+  });
+
+  // Dán từ ngoài app: chỉ lấy giá trị, vì lưu chỉ ghi giá trị và số phải được hiểu đúng (Q80). Chép trong lưới để thư viện làm.
+  univerAPI.addEvent(univerAPI.Event.BeforeClipboardPaste, (p) => {
+    const { html, text } = p;
+    if (html?.includes('data-copy-id')) return;
+    const fromExcel = Boolean(html && /urn:schemas-microsoft-com:office:excel/.test(html));
+    const cells = (html?.includes('<table') ? cellsFromHtml(html) : null) ?? (text ? cellsFromText(text) : null);
+    if (!cells?.length) return;
+    p.cancel = true;
+    const ws = p.worksheet;
+    const name = ws.getSheetName();
+    const at = ws.getSelection()?.getActiveRange();
+    if (!at) return;
+    const top = at.getRow();
+    const left = at.getColumn();
+    const width = Math.max(...cells.map((row) => row.length));
+    if (top + cells.length > ws.getMaxRows() || left + width > ws.getMaxColumns()) {
+      onPasted?.({ sheet: name, tooBig: true, rows: cells.length, cols: width });
+      return;
+    }
+    for (let r = 0; r < cells.length; r++) {
+      for (let c = 0; c < width; c++) {
+        if (lockedAt(name, top + r, left + c)) {
+          onLockedCell?.({ sheet: name, cell: a1Of(top + r, left + c) });
+          return;
+        }
+      }
+    }
+    const read = interpretTable(cells, { fromExcel, plain: fromExcel && text ? cellsFromText(text) : null });
+    if (read.narrow.length) {
+      onPasted?.({ sheet: name, narrow: read.narrow });
+      return;
+    }
+    const data = read.rows.map((row) => Array.from({ length: width }, (_, c) => {
+      const v = row[c] ?? null;
+      return typeof v === 'string' ? { v, t: 1 } : { v }; // chữ từ ngoài không được thành công thức
+    }));
+    ws.getRange(top, left, cells.length, width).setValues(data);
+    scheduleRefresh();
+    const place = (x) => ({ cell: a1Of(top + x.r, left + x.c), text: x.text, value: x.value });
+    onPasted?.({ sheet: name, guessed: read.guessed.map(place), unread: read.unread.map(place), rounded: read.rounded.map(place), swapped: read.swapped.map(place), unclear: read.unclear.map(place), decimal: read.decimal, hadEvidence: read.hadEvidence, fromExcel: read.fromExcel });
+  });
+
+  function collectEdits() {
+    const snap = wb.save();
+    const edits = [];
+    for (const ws of wb.getSheets()) {
+      const name = ws.getSheetName();
+      const sh = model.sheets.find((x) => x.name === name);
+      const orig = new Map((sh?.cells ?? []).map((c) => [`${c.r},${c.c}`, c]));
+      const data = snap.sheets[ws.getSheetId()]?.cellData ?? {};
+      const seen = new Set();
+      for (const [r, row] of Object.entries(data)) {
+        for (const [c, cell] of Object.entries(row)) {
+          const key = `${r},${c}`;
+          seen.add(key);
+          const before = orig.get(key);
+          const addr = a1(Number(r), Number(c));
+          // Công thức chép bằng kéo có thể chỉ lưu mã dùng chung, nên hỏi lại đúng ô để có chữ công thức.
+          const formula = cell?.f || (cell?.si ? ws.getRange(Number(r), Number(c)).getFormula() : null) || null;
+          if (formula) {
+            if (formula !== before?.f) edits.push({ sheet: name, cell: addr, formula: formula.replace(/^=/, '') });
+            continue;
+          }
+          const value = cell?.v ?? null;
+          if (before?.f) {
+            edits.push({ sheet: name, cell: addr, value });
+          } else {
+            const old = before?.v ?? null;
+            const same = value === old || (typeof old === 'boolean' && Number(old) === value);
+            if (!same) edits.push({ sheet: name, cell: addr, value });
+          }
+        }
+      }
+      for (const [key, before] of orig) {
+        if (!seen.has(key) && (before.f || before.v !== undefined)) {
+          const [r, c] = key.split(',').map(Number);
+          edits.push({ sheet: name, cell: a1(r, c), value: null });
+        }
+      }
+    }
+    return edits;
+  }
+
   return {
     problems,
+    collectEdits,
+    isEditing: () => wb.isCellEditing(),
+    // Xác nhận ô đang gõ dở. Trả false nếu ô vẫn đang mở, ví dụ số nhập nhằng đang chờ người dùng gõ lại.
+    async commitEditing() {
+      if (!wb.isCellEditing()) return true;
+      await wb.endEditingAsync(true);
+      await new Promise((r) => setTimeout(r, 50));
+      return !wb.isCellEditing();
+    },
+    formulaValues() {
+      const snap = wb.save();
+      const out = [];
+      for (const sh of model.sheets) {
+        const id = sheetIdByName(sh.name);
+        for (const c of sh.cells) if (c.f) out.push({ sheet: sh.name, cell: a1(c.r, c.c), value: rawValue(snap, id, c.r, c.c) });
+      }
+      return out;
+    },
+    undo: () => univerAPI.undo(),
+    redo: () => univerAPI.redo(),
+    formula: (sheet, ref) => wb.getSheetByName(sheet).getRange(ref).getFormula(),
+    settled: async () => {
+      await imagesDone;
+      await waitForCalculation();
+      refreshGeneralPatterns();
+    },
     visibleSheets: () => wb.getSheets().filter((ws) => !ws.isSheetHidden()).map((ws) => ws.getSheetName()),
     value(sheet, ref) {
       const ws = wb.getSheetByName(sheet);
@@ -305,11 +575,14 @@ export function createGrid(container, model) {
     async compareWithSaved() {
       await imagesDone;
       const snap = await waitForCalculation();
+      if (!snap) return [];
+      refreshGeneralPatterns();
       const out = [];
       for (const sh of model.sheets) {
         const id = sheetIdByName(sh.name);
         for (const c of sh.cells) {
-          if (!c.f) continue;
+          // Ô không có số đã lưu (file do app ghi, chưa qua Excel) thì không có gì để so.
+          if (!c.f || c.excel_v === null || c.excel_v === undefined) continue;
           const computed = rawValue(snap, id, c.r, c.c);
           if (!sameValue(c.excel_v, computed)) out.push({ sheet: sh.name, cell: a1(c.r, c.c), saved: c.excel_v ?? null, computed });
         }
@@ -317,6 +590,11 @@ export function createGrid(container, model) {
       return out;
     },
     destroy() {
+      disposed = true;
+      clearTimeout(refreshTimer);
+      clearTimeout(changeTimer);
+      calcListener.dispose();
+      endUndoBatch();
       univer.dispose();
     },
   };
