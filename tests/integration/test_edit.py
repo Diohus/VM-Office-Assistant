@@ -72,7 +72,7 @@ def test_hoan_tac_lam_lai(run):
 
 def test_q86_khong_mat_im_lang(run):
     assert run["dirty_count"] > 0 and run["after_stay_dirty"] == run["dirty_count"]
-    assert "chưa lưu" in run["unsaved_dialog"]
+    assert "chưa lưu" in run["unsaved_dialog"] and run["unsaved_dialog"].startswith("Anh/chị có thay đổi") and "bạn" not in run["unsaved_dialog"].lower()  # Q109
     assert run["beforeunload_dialogs"] == 1
 
 

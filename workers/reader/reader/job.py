@@ -16,7 +16,7 @@ def process(data: bytes, filename: str, path) -> dict:
                 pkg = Package(zf)
                 cells = inventory.count_cells(pkg)
                 if cells > gate.MAX_CELLS:
-                    raise gate.Rejected("FILE_TOO_LARGE", f"File có {cells:,} ô dữ liệu".replace(",", ".") + ", vượt giới hạn 200.000 ô nên app không mở. File của bạn không bị đổi. Hãy tách file hoặc hỏi người quản lý app.", limit="cells", cells=cells)
+                    raise gate.Rejected("FILE_TOO_LARGE", f"File có {cells:,} ô dữ liệu".replace(",", ".") + ", vượt giới hạn 200.000 ô nên app không mở. File của anh/chị không bị đổi. Hãy tách file hoặc hỏi người quản lý app.", limit="cells", cells=cells)
                 unshown = inventory.unshown(pkg)
                 external = inventory.external_refs(pkg)
                 protected = inventory.protected_sheets(pkg)

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError, EDITS_TOO_MANY, MAX_EDITS, exportPdf, exportUrl, fetchDocument, fetchGrid, fetchRecent, fetchVersions, restoreVersion, saveVersion, uploadDocument } from './api.js';
+import { ApiError, editsTooMany, MAX_EDITS, exportPdf, exportUrl, fetchDocument, fetchGrid, fetchRecent, fetchVersions, restoreVersion, saveVersion, uploadDocument } from './api.js';
 import { createGrid } from './grid/index.js';
 import { ambiguousNumberNotice, decimalSwappedNotice, documentNotices, hiddenDigitsNotice, EXPORT_UNCHANGED, EXPORT_UNCHANGED_LEGACY, EXPORT_WARNING, lockedCellNotice, mismatchNotice, pastedNotice, pdfMismatchNotice, refusedNotice, SAVE_FAILED_NOTE, savedNotice } from './notices.js';
 
@@ -192,7 +192,9 @@ export default function App() {
       } else if (e instanceof ApiError && e.code === 'PDF_MISMATCH') {
         pushNotice(pdfMismatchNotice(e.detail?.cells ?? [], e.message));
       } else {
-        setError((e instanceof ApiError ? e.message : 'App chưa làm xong việc này. File của bạn không bị đổi. Hãy thử lại, hoặc hỏi người quản lý app nếu vẫn không được.') + note);
+        // Câu quá 5000 ô đã nói các sửa còn trên màn hình ở đầu câu, không nối thêm ở cuối (PO/BA lượt 3).
+        const tail = e instanceof ApiError && e.code === 'EDITS_TOO_MANY' ? '' : note;
+        setError((e instanceof ApiError ? e.message : 'App chưa làm xong việc này. File của anh/chị không bị đổi. Hãy thử lại, hoặc hỏi người quản lý app nếu vẫn không được.') + tail);
       }
     } finally {
       setBusy(false);
@@ -210,7 +212,7 @@ export default function App() {
       return true;
     }
     // Q124: quá giới hạn thì báo ngay, không gửi đi. Lỗi làm dừng việc tiếp theo (mở file khác...), các sửa còn trên màn hình.
-    if (edits.length > MAX_EDITS) throw new ApiError(EDITS_TOO_MANY, 'EDITS_TOO_MANY');
+    if (edits.length > MAX_EDITS) throw new ApiError(editsTooMany(edits.length), 'EDITS_TOO_MANY');
     const meta = await saveVersion(docRef.current.document_id, { base_version: docRef.current.version, author, edits });
     await showGrid(meta, { keep: [savedNotice(meta.version, edits.length)] });
     if (versions) await refreshVersions(meta.document_id);
@@ -346,7 +348,7 @@ export default function App() {
           ) : (
             <div className="welcome">
               <h1>Mở biểu mẫu để bắt đầu</h1>
-              <p>App mở được file Excel .xlsx, .xlsm và .xls. File gốc của bạn không bị đổi.</p>
+              <p>App mở được file Excel .xlsx, .xlsm và .xls. File gốc của anh/chị không bị đổi.</p>
               <button type="button" className="btn" onClick={pick} disabled={busy}>Mở file</button>
               {recent.length > 0 && (
                 <div className="recent" data-testid="recent">
@@ -400,18 +402,18 @@ export default function App() {
             { label: 'Ở lại', onClick: () => setDialog(null) },
           ]}
         >
-          Bạn có thay đổi chưa lưu. Lưu thành bản mới, bỏ các thay đổi này, hay ở lại để sửa tiếp?
+          Anh/chị có thay đổi chưa lưu. Lưu thành bản mới, bỏ các thay đổi này, hay ở lại để sửa tiếp?
         </Dialog>
       )}
       {dialog?.kind === 'name' && (
         <Dialog
-          title="Tên của bạn"
+          title="Tên của anh/chị"
           actions={[
             { label: 'Tiếp tục', primary: true, disabled: !nameDraft.trim(), onClick: () => { const name = nameDraft.trim(); rememberUser(name); setUser(name); const { then } = dialog; setDialog(null); then(name); } },
             { label: 'Hủy', onClick: () => setDialog(null) },
           ]}
         >
-          <label>App ghi tên này vào lịch sử để biết ai đã sửa. Tên bạn tự gõ, bản thử nghiệm chưa kiểm tra đăng nhập.
+          <label>App ghi tên này vào lịch sử để biết ai đã sửa. Tên anh/chị tự gõ, bản thử nghiệm chưa kiểm tra đăng nhập.
             <input className="text-input" value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} autoFocus data-testid="name-input" maxLength={120} />
           </label>
         </Dialog>

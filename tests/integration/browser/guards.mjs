@@ -504,6 +504,14 @@ await sidebar('Lưu');
 await nameIfAsked();
 await pg.waitForSelector('[data-notice=open-error]');
 res.too_many = { error: await noticeText('open-error'), dirty: await dirty(), state: await state(), posts: savePosts };
+// Làm đúng cách câu báo chỉ: Xuất, Bỏ thay đổi, Hủy. Phải bỏ hết sửa trong một bước, về bản đang lưu.
+await sidebar('Xuất');
+await pg.waitForSelector(UNSAVED);
+await button('Bỏ thay đổi');
+await pg.waitForSelector('.dialog-actions button:has-text("Hủy")');
+await button('Hủy');
+await sleep(300);
+res.too_many_discard = { dirty: await dirty(), state: await state(), a2: await val('A2', 'Lon') };
 
 await browser.close();
 fs.writeFileSync(path.join(OUT, 'guards.json'), JSON.stringify(res, null, 1));

@@ -80,11 +80,37 @@ def test_khong_dung_lai_image_va_khong_doc_env():
     assert not any(word in text.lower() for word in ("executionpolicy", "reg add", "set-mppreference", "bcdedit", "schtasks"))
 
 
+def shortcut(folder, pause: bool = False) -> subprocess.CompletedProcess:
+    env = {**os.environ}
+    env.pop("VM_NO_PAUSE", None)
+    if not pause:
+        env["VM_NO_PAUSE"] = "1"
+    # Có pause thì gửi sẵn một phím, như người dùng bấm phím để đóng cửa sổ.
+    return subprocess.run(["cmd.exe", "/c", str(SHORTCUT), str(folder)], input="x\r\n" if pause else None, stdin=None if pause else subprocess.DEVNULL,
+                          capture_output=True, text=True, encoding="utf8", errors="replace", timeout=60, env=env)
+
+
 def test_tao_bieu_tuong_trong_thu_muc_duoc_chi(tmp_path):
-    proc = subprocess.run(["cmd.exe", "/c", str(SHORTCUT), str(tmp_path)], capture_output=True, text=True, encoding="utf8", errors="replace", timeout=60)
+    proc = shortcut(tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     links = list(tmp_path.glob("*.lnk"))
     assert len(links) == 1 and "VM-Office" in links[0].name
+
+
+def test_tao_bieu_tuong_dung_lai_cho_doc_ket_qua(tmp_path):
+    # T-DEV-06: nhấp đúp thì cửa sổ phải dừng để người dùng đọc "Đã tạo biểu tượng" (Owner gặp 10/11).
+    proc = shortcut(tmp_path, pause=True)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    done = proc.stdout.index("Đã tạo biểu tượng")
+    assert proc.stdout[done:].strip().count("\n") >= 1, "sau câu kết quả phải còn lời nhắc của pause"
+    assert len(list(tmp_path.glob("*.lnk"))) == 1
+
+
+def test_tao_bieu_tuong_thu_muc_khong_co_thi_bao_va_dung_lai(tmp_path):
+    proc = shortcut(tmp_path / "khong_co", pause=True)
+    assert proc.returncode == 1
+    assert "Không tìm thấy thư mục" in proc.stdout and not list(tmp_path.glob("**/*.lnk"))
+    assert proc.stdout.strip() != "Không tìm thấy thư mục để đặt biểu tượng.", "phải có lời nhắc của pause sau câu báo"
 
 
 def test_file_cmd_dung_xuong_dong_cua_windows():

@@ -13,7 +13,7 @@ from . import writer
 from .job import process
 
 _VOLATILE = re.compile(r"\b(?:NOW|TODAY|RAND|RANDBETWEEN|RANDARRAY)\s*\(", re.I)
-_WRITE_FAILED = "App chưa ghi được vào file này. Bản đang lưu của bạn không bị đổi. Hãy thử lại, hoặc hỏi người quản lý app."
+_WRITE_FAILED = "App chưa ghi được vào file này. Bản đang lưu của anh/chị không bị đổi. Hãy thử lại, hoặc hỏi người quản lý app."
 
 
 def _read(source: pathlib.Path, job: dict) -> dict:
@@ -40,7 +40,7 @@ def _write(source: pathlib.Path, job: dict, out_file: pathlib.Path) -> dict:
     try:
         written = writer.apply(source.read_bytes(), job["edits"], job["document_uuid"])
     except writer.WriteRefused as refused:
-        return {"ok": False, "code": "WRITE_REFUSED", "message": "Có ô không ghi được nên app chưa ghi gì. Bản đang lưu của bạn không bị đổi. Hãy xem các ô được nêu.", "detail": {"cells": refused.cells}}
+        return {"ok": False, "code": "WRITE_REFUSED", "message": "Có ô không ghi được nên app chưa ghi gì. Bản đang lưu của anh/chị không bị đổi. Hãy xem các ô được nêu.", "detail": {"cells": refused.cells}}
     except writer.PatchError:
         return {"ok": False, "code": "WRITE_FAILED", "message": _WRITE_FAILED, "detail": {}}
     tmp = out_file.with_name("dang_ghi_" + out_file.name)  # thư viện đọc xlsx xét đuôi file nên phải giữ .xlsx

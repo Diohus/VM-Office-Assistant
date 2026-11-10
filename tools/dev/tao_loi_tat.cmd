@@ -9,8 +9,15 @@ set "FOLDER=%~1"
 if "%FOLDER%"=="" for /f "usebackq delims=" %%d in (`powershell -NoProfile -Command "[Environment]::GetFolderPath('Desktop')"`) do set "FOLDER=%%d"
 if not exist "%FOLDER%" (
   echo Không tìm thấy thư mục để đặt biểu tượng.
-  exit /b 1
+  set "RC=1"
+  goto end
 )
 set "LINK=%FOLDER%\VM-Office-Assistant.lnk"
-powershell -NoProfile -Command "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:LINK); $s.TargetPath = $env:TARGET; $s.WorkingDirectory = (Split-Path $env:TARGET); $s.Description = 'VM-Office-Assistant'; $s.Save()" || exit /b 1
+powershell -NoProfile -Command "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:LINK); $s.TargetPath = $env:TARGET; $s.WorkingDirectory = (Split-Path $env:TARGET); $s.Description = 'VM-Office-Assistant'; $s.Save()" || (set "RC=1" & goto end)
 echo Đã tạo biểu tượng: %LINK%
+set "RC=0"
+
+:end
+rem Nhấp đúp thì cửa sổ tự đóng ngay, người dùng không kịp đọc kết quả (Owner gặp 10/11). Dừng lại, trừ khi chạy tự động.
+if "%VM_NO_PAUSE%"=="" pause
+exit /b %RC%

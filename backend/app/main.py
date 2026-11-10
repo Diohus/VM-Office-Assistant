@@ -30,7 +30,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="VM-Office-Assistant", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 
-_INVALID = "App không xử lý được yêu cầu này nên chưa làm gì. Bản đang lưu và file của bạn không bị đổi. Hãy tải lại trang rồi thử lại; nếu vẫn lỗi, báo người quản lý app."
+_INVALID = "App không xử lý được yêu cầu này nên chưa làm gì. Bản đang lưu và file của anh/chị không bị đổi. Hãy tải lại trang rồi thử lại; nếu vẫn lỗi, báo người quản lý app."
 
 
 @app.exception_handler(RequestValidationError)
@@ -42,15 +42,15 @@ async def _invalid_request(_request: Request, exc: RequestValidationError) -> JS
     errors = exc.errors()
     fields = [{"field": ".".join(str(part) for part in e.get("loc", ())), "type": e.get("type")} for e in errors[:20]]
     if any(tuple(e.get("loc", ())) == ("body", "edits") and e.get("type") == "too_long" for e in errors):
-        return _problem(413, "EDITS_TOO_MANY", f"Lần lưu này có quá {MAX_EDITS} ô sửa nên app chưa ghi. Bản đang lưu không bị đổi. Hãy lưu sau mỗi lần sửa ít hơn {MAX_EDITS} ô.", limit=MAX_EDITS)
+        return _problem(413, "EDITS_TOO_MANY", f"Lần lưu này có quá {MAX_EDITS} ô sửa nên app chưa ghi. Bản đang lưu không bị đổi, các sửa vẫn còn trên màn hình. Muốn lưu, cần bỏ hết các sửa này rồi làm lại từng phần: bấm Xuất, chọn Bỏ thay đổi, rồi bấm Hủy. Sau đó dán hoặc gõ lại từng phần, mỗi phần không quá {MAX_EDITS} ô, và bấm Lưu sau mỗi phần.", limit=MAX_EDITS)
     return _problem(422, "INVALID_REQUEST", _INVALID, fields=fields)
 
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
-_BUSY = "App chưa xử lý được vì hệ thống đang bận hoặc chưa sẵn sàng. File của bạn không bị đổi. Hãy thử lại sau ít phút."
+_BUSY = "App chưa xử lý được vì hệ thống đang bận hoặc chưa sẵn sàng. File của anh/chị không bị đổi. Hãy thử lại sau ít phút."
 _LEGACY_CONVERTED = "Đây là file đời cũ, app đã chuyển sang định dạng mới để mở, và sẽ lưu thành .xlsx. Bản gốc còn nguyên. Trình bày có thể lệch một chút."
 _LEGACY_FAILED = "App chưa mở được file đời cũ này. Bản gốc không bị đổi. Hãy thử mở bằng Excel, lưu thành .xlsx rồi tải lại."
-_PDF_DOWN = "App chưa xuất được PDF vì phần xử lý PDF đang không chạy. Biểu mẫu của bạn không bị đổi. Bạn vẫn xuất được file Excel, hoặc thử lại sau."
-_PDF_FAILED = "App chưa xuất được PDF từ file này. Biểu mẫu của bạn không bị đổi. Bạn vẫn xuất được file Excel."
+_PDF_DOWN = "App chưa xuất được PDF vì phần xử lý PDF đang không chạy. Biểu mẫu của anh/chị không bị đổi. Anh/chị vẫn xuất được file Excel, hoặc thử lại sau."
+_PDF_FAILED = "App chưa xuất được PDF từ file này. Biểu mẫu của anh/chị không bị đổi. Anh/chị vẫn xuất được file Excel."
 _STALE = "Bản này đã có thay đổi mới hơn nên app chưa ghi. Bản đang lưu không bị đổi. Hãy mở lại bản mới nhất rồi sửa lại."
 
 
@@ -152,9 +152,9 @@ async def upload(request: Request, filename: str):
     name = _clean_name(filename)
     data = await _read_limited(request)
     if data is None:
-        return _problem(413, "FILE_TOO_LARGE", "File vượt giới hạn 25 MB nên app không mở. File của bạn không bị đổi. Hãy tách file hoặc hỏi người quản lý app.", limit="file")
+        return _problem(413, "FILE_TOO_LARGE", "File vượt giới hạn 25 MB nên app không mở. File của anh/chị không bị đổi. Hãy tách file hoặc hỏi người quản lý app.", limit="file")
     if not data:
-        return _problem(422, "FILE_CORRUPT", "File không có nội dung nên app không mở được. File gốc của bạn không bị đổi. Hãy kiểm tra lại file rồi chọn lại.")
+        return _problem(422, "FILE_CORRUPT", "File không có nội dung nên app không mở được. File gốc của anh/chị không bị đổi. Hãy kiểm tra lại file rồi chọn lại.")
     sha = hashlib.sha256(data).hexdigest()
     try:
         result = await run_in_threadpool(reader_client.read, data, name)
@@ -274,7 +274,7 @@ def export_pdf(document_id: str, body: PdfRequest):
         return _problem(422, "PDF_FAILED", _PDF_FAILED)
     mismatches = comparison.compare(cells, [v.model_dump() for v in body.grid_values])
     if mismatches:
-        return _problem(409, "PDF_MISMATCH", f"Số trong PDF khác số trên bảng ở {len(mismatches)} ô, nên app chưa xuất PDF. Biểu mẫu của bạn không bị đổi. Hãy kiểm tra các ô được nêu, hoặc xuất file Excel.", cells=mismatches[:200])
+        return _problem(409, "PDF_MISMATCH", f"Số trong PDF khác số trên bảng ở {len(mismatches)} ô, nên app chưa xuất PDF. Biểu mẫu của anh/chị không bị đổi. Hãy kiểm tra các ô được nêu, hoặc xuất file Excel.", cells=mismatches[:200])
     stem = row["name"].rpartition(".")[0] or row["name"]
     return Response(pdf, media_type="application/pdf", headers={
         "Content-Disposition": f"attachment; filename=\"export.pdf\"; filename*=UTF-8''{quote(stem + '_xuat.pdf')}",

@@ -39,7 +39,7 @@ def _write_atomic(path: pathlib.Path, text: str) -> None:
 
 
 def _failed(reason: str) -> str:
-    return json.dumps({"ok": False, "code": "FILE_NOT_READABLE", "message": "App không xử lý xong file này trong thời gian cho phép. File của bạn không bị đổi. Hãy thử lại, hoặc hỏi người quản lý app nếu vẫn không được.", "detail": {"reason": reason}})
+    return json.dumps({"ok": False, "code": "FILE_NOT_READABLE", "message": "App không xử lý xong file này trong thời gian cho phép. File của anh/chị không bị đổi. Hãy thử lại, hoặc hỏi người quản lý app nếu vẫn không được.", "detail": {"reason": reason}})
 
 
 def _run_job(job: pathlib.Path) -> None:

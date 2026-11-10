@@ -48,6 +48,15 @@ def test_file_rat_lon_bi_chan_o_cua():
     assert got == 413 and body["code"] == "FILE_TOO_LARGE" and "25 MB" in body["message"]
 
 
+def test_cau_co_file_dung_so_va_xung_ho():
+    # Q112: file 25,5 MB không được báo thành "26 MB". Q109: xưng "anh/chị", không "bạn".
+    got, body = upload((GENERATED / "GIA-VUOT_25MB.xlsx").read_bytes(), "GIA-VUOT_25MB.xlsx")
+    assert got == 413 and "File nặng 25.6 MB, vượt giới hạn 25 MB" in body["message"]
+    assert "anh/chị" in body["message"] and "bạn" not in body["message"]
+    _, big = upload(b"\0" * (27 * 1024 * 1024), "lon.xlsx")
+    assert "anh/chị" in big["message"] and "bạn" not in big["message"]
+
+
 def test_txt_doi_duoi_xlsx():
     got, body = upload(b"khong phai excel", "gia.xlsx")
     assert got == 422 and body["code"] == "FILE_CORRUPT"

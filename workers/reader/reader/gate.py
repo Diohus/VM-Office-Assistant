@@ -24,13 +24,23 @@ MACRO_MAIN = "application/vnd.ms-excel.sheet.macroEnabled.main+xml"
 _DTD_MARKERS = (b"<!DOCTYPE", b"<!ENTITY", "<!DOCTYPE".encode("utf-16-le"), "<!ENTITY".encode("utf-16-le"))
 
 
-MSG_CORRUPT = "App không đọc được file này, có thể file bị hỏng hoặc chép thiếu. File gốc của bạn không bị đổi. Hãy thử mở bằng Excel, hoặc lấy lại bản khác."
-MSG_PASSWORD = "File đang khóa bằng mật khẩu nên app không mở được. File của bạn không bị đổi. Hãy mở bằng Excel, bỏ mật khẩu ở một bản sao rồi tải lại, hoặc hỏi người giữ file."
+MSG_CORRUPT = "App không đọc được file này, có thể file bị hỏng hoặc chép thiếu. File gốc của anh/chị không bị đổi. Hãy thử mở bằng Excel, hoặc lấy lại bản khác."
+MSG_PASSWORD = "File đang khóa bằng mật khẩu nên app không mở được. File của anh/chị không bị đổi. Hãy mở bằng Excel, bỏ mật khẩu ở một bản sao rồi tải lại, hoặc hỏi người giữ file."
 
 
 def _unsupported(ext: str) -> str:
     kind = f"là {ext}" if ext else "không có đuôi rõ ràng"
-    return f"App chỉ mở được file Excel .xlsx, .xlsm và .xls, còn file của bạn {kind}. File của bạn không bị đổi. Hãy chọn file khác."
+    return f"App chỉ mở được file Excel .xlsx, .xlsm và .xls, còn file của anh/chị {kind}. File của anh/chị không bị đổi. Hãy chọn file khác."
+
+
+def _size_mb(size: int) -> str:
+    """Cỡ file theo MB như Windows hiện (1 MB = 1024 × 1024 byte), một số lẻ, làm tròn lên (Q112).
+
+    Làm tròn lên để không bao giờ báo đúng bằng 25 MB cho file vượt giới hạn: 25,5 MB không thành "26 MB", 25,01 MB không thành "25.0 MB".
+    Dấu chấm thập phân như cả app (Q122).
+    """
+    tenths = -(-size * 10 // (1024 * 1024))
+    return f"{tenths // 10}.{tenths % 10}"
 
 
 class Rejected(Exception):
@@ -81,7 +91,7 @@ def _reject_ole(data: bytes, filename: str) -> None:
     if "Workbook" in streams and _xls_has_password(data):
         raise Rejected("FILE_PASSWORD", MSG_PASSWORD)
     if {"Workbook", "Book"} & streams:
-        raise Rejected("FILE_LEGACY_XLS", "Đây là file Excel đời cũ (.xls), app hiện chưa mở được. File của bạn không bị đổi. Hãy mở bằng Excel, lưu thành .xlsx rồi tải lại.")
+        raise Rejected("FILE_LEGACY_XLS", "Đây là file Excel đời cũ (.xls), app hiện chưa mở được. File của anh/chị không bị đổi. Hãy mở bằng Excel, lưu thành .xlsx rồi tải lại.")
     raise Rejected("FILE_UNSUPPORTED", _unsupported(_extension(filename)))
 
 
@@ -114,11 +124,11 @@ def _scan_parts(zf: zipfile.ZipFile, infos: list[zipfile.ZipInfo]) -> None:
                 while chunk := fh.read(CHUNK):
                     total += len(chunk)
                     if total > MAX_UNCOMPRESSED_BYTES:
-                        raise _too_large("uncompressed", "Nội dung file khi mở ra vượt giới hạn 200 MB nên app không mở. File của bạn không bị đổi. Hãy tách file hoặc hỏi người quản lý app.")
+                        raise _too_large("uncompressed", "Nội dung file khi mở ra vượt giới hạn 200 MB nên app không mở. File của anh/chị không bị đổi. Hãy tách file hoặc hỏi người quản lý app.")
                     if scan_xml:
                         window = tail + chunk
                         if any(marker in window for marker in _DTD_MARKERS):
-                            raise Rejected("FILE_UNSAFE", "File có thành phần app không cho phép nên app không mở. File của bạn không bị đổi. Hãy mở bằng Excel, lưu thành file khác rồi tải lại, hoặc hỏi người quản lý app.", part=info.filename)
+                            raise Rejected("FILE_UNSAFE", "File có thành phần app không cho phép nên app không mở. File của anh/chị không bị đổi. Hãy mở bằng Excel, lưu thành file khác rồi tải lại, hoặc hỏi người quản lý app.", part=info.filename)
                         tail = chunk[-32:]
         except (zipfile.BadZipFile, EOFError, OSError, RuntimeError, NotImplementedError) as exc:
             raise Rejected("FILE_CORRUPT", MSG_CORRUPT) from exc
@@ -143,7 +153,7 @@ def _main_content_type(zf: zipfile.ZipFile) -> str | None:
 
 def check(data: bytes, filename: str) -> Accepted:
     if len(data) > MAX_FILE_BYTES:
-        raise _too_large("file", f"File nặng {len(data) / 1024 / 1024:.0f} MB, vượt giới hạn 25 MB nên app không mở. File của bạn không bị đổi. Hãy tách file hoặc hỏi người quản lý app.")
+        raise _too_large("file", f"File nặng {_size_mb(len(data))} MB, vượt giới hạn 25 MB nên app không mở. File của anh/chị không bị đổi. Hãy tách file hoặc hỏi người quản lý app.")
     ext = _extension(filename)
     if data[:8] == OLE_MAGIC:
         _reject_ole(data, filename)
@@ -160,7 +170,7 @@ def check(data: bytes, filename: str) -> Accepted:
     with zf:
         infos = zf.infolist()
         if len(infos) > MAX_PARTS:
-            raise _too_large("parts", "File có quá nhiều thành phần bên trong nên app không mở. File của bạn không bị đổi. Hãy tách file hoặc hỏi người quản lý app.")
+            raise _too_large("parts", "File có quá nhiều thành phần bên trong nên app không mở. File của anh/chị không bị đổi. Hãy tách file hoặc hỏi người quản lý app.")
         _check_names(infos)
         names = {i.filename for i in infos}
         if "[Content_Types].xml" not in names or "xl/workbook.xml" not in names:
@@ -176,7 +186,7 @@ def check(data: bytes, filename: str) -> Accepted:
         if has_macro or content_type == MACRO_MAIN:
             accepted.warnings.append({
                 "code": "FILE_MACRO_IGNORED",
-                "message": "File này có phần tự động hóa (macro). App không chạy phần đó, nhưng vẫn xem được dữ liệu và công thức. File của bạn không bị đổi." if has_macro
-                else "File này có thể có phần tự động hóa (macro). App không chạy phần đó, nhưng vẫn xem được dữ liệu và công thức. File của bạn không bị đổi.",
+                "message": "File này có phần tự động hóa (macro). App không chạy phần đó, nhưng vẫn xem được dữ liệu và công thức. File của anh/chị không bị đổi." if has_macro
+                else "File này có thể có phần tự động hóa (macro). App không chạy phần đó, nhưng vẫn xem được dữ liệu và công thức. File của anh/chị không bị đổi.",
             })
         return accepted

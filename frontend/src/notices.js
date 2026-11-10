@@ -70,7 +70,7 @@ function externalNotice(doc) {
   return {
     id: 'external',
     kind: 'warn',
-    text: `File này có ${joinVi(parts)}. App không gọi ra ngoài, nên các ô đó chỉ hiện số đã lưu trong file, nếu có, và có thể không mới. File của bạn không bị đổi; hãy kiểm tra các ô được nêu.`,
+    text: `File này có ${joinVi(parts)}. App không gọi ra ngoài, nên các ô đó chỉ hiện số đã lưu trong file, nếu có, và có thể không mới. File của anh/chị không bị đổi; hãy kiểm tra các ô được nêu.`,
     places: [...cells, ...rules].map((b) => ({ label: `Sheet ${b.sheet}, ô ${b.cell}`, sheet: b.sheet, cell: firstCell(b.cell) })),
   };
 }
@@ -94,7 +94,7 @@ export function ambiguousNumberNotice({ sheet, cell, text, unclear }) {
     return {
       id: 'ambiguous',
       kind: 'warn',
-      text: `Ô ${cell}: "${text}" không phải một số rõ ràng, nên app chưa ghi. File của bạn không bị đổi. Hãy gõ lại, dùng ${SEP_NAME[DECIMAL]} cho số lẻ, hoặc bấm Esc để bỏ.`,
+      text: `Ô ${cell}: "${text}" không phải một số rõ ràng, nên app chưa ghi. File của anh/chị không bị đổi. Hãy gõ lại, dùng ${SEP_NAME[DECIMAL]} cho số lẻ, hoặc bấm Esc để bỏ.`,
       places: [{ label: `Sheet ${sheet}, ô ${cell}`, sheet, cell }],
     };
   }
@@ -103,7 +103,7 @@ export function ambiguousNumberNotice({ sheet, cell, text, unclear }) {
   return {
     id: 'ambiguous',
     kind: 'warn',
-    text: `Ô ${cell}: "${text}" có thể là số nghìn ${compact} hoặc số lẻ ${decimal}, nên app chưa ghi. File của bạn không bị đổi. Hãy gõ ${compact} nếu là số nghìn, hoặc ${decimal}0 nếu là số lẻ.`,
+    text: `Ô ${cell}: "${text}" có thể là số nghìn ${compact} hoặc số lẻ ${decimal}, nên app chưa ghi. File của anh/chị không bị đổi. Hãy gõ ${compact} nếu là số nghìn, hoặc ${decimal}0 nếu là số lẻ.`,
     places: [{ label: `Sheet ${sheet}, ô ${cell}`, sheet, cell }],
   };
 }
@@ -131,10 +131,10 @@ export function hiddenDigitsNotice({ sheet, cell, full, shown, next }) {
 // Báo một lần cho cả vùng dán. Trả null nếu mọi ô đều hiểu chắc chắn.
 export function pastedNotice({ sheet, tooBig, rows, cols, narrow = [], guessed = [], unread = [], rounded = [], swapped = [], unclear = [], decimal, hadEvidence, fromExcel }) {
   if (narrow.length) {
-    return { id: 'pasted', kind: 'warn', text: `${narrow.length} ô đang hiện dấu thăng trong Excel vì cột hẹp, nên app chưa dán gì. File của bạn không bị đổi. Hãy nới rộng cột trong Excel, chép lại rồi dán.`, places: [] };
+    return { id: 'pasted', kind: 'warn', text: `${narrow.length} ô đang hiện dấu thăng trong Excel vì cột hẹp, nên app chưa dán gì. File của anh/chị không bị đổi. Hãy nới rộng cột trong Excel, chép lại rồi dán.`, places: [] };
   }
   if (tooBig) {
-    return { id: 'pasted', kind: 'warn', text: `Vùng dán có ${rows} dòng, ${cols} cột, vượt quá biểu mẫu nên app chưa dán. File của bạn không bị đổi. Hãy chọn ô đầu khác hoặc dán vùng nhỏ hơn.`, places: [] };
+    return { id: 'pasted', kind: 'warn', text: `Vùng dán có ${rows} dòng, ${cols} cột, vượt quá biểu mẫu nên app chưa dán. File của anh/chị không bị đổi. Hãy chọn ô đầu khác hoặc dán vùng nhỏ hơn.`, places: [] };
   }
   const places = [
     ...rounded.map((x) => ({ label: `Sheet ${sheet}, ô ${x.cell}: đã dán ${formatNumber(x.value)}, có thể đã làm tròn`, sheet, cell: x.cell })),
@@ -164,7 +164,7 @@ export function lockedCellNotice({ sheet, cell }) {
   return {
     id: 'locked',
     kind: 'warn',
-    text: `Ô ${cell} đang bị khóa bảo vệ trong file nên không sửa được. File của bạn không bị đổi. Nếu cần sửa, hãy hỏi người giữ biểu mẫu để bỏ khóa.`,
+    text: `Ô ${cell} đang bị khóa bảo vệ trong file nên không sửa được. File của anh/chị không bị đổi. Nếu cần sửa, hãy hỏi người giữ biểu mẫu để bỏ khóa.`,
     places: [{ label: `Sheet ${sheet}, ô ${cell}`, sheet, cell }],
   };
 }
@@ -192,7 +192,7 @@ export function mismatchNotice(mismatches) {
   return {
     id: 'mismatch',
     kind: 'warn',
-    text: `Có ${mismatches.length} ô công thức app tính ra khác số đã lưu trong file. File của bạn không bị đổi. Hãy kiểm tra các ô này bằng Excel.`,
+    text: `Có ${mismatches.length} ô công thức app tính ra khác số đã lưu trong file. File của anh/chị không bị đổi. Hãy kiểm tra các ô này bằng Excel.`,
     places: mismatches.map((m) => ({ label: `Sheet ${m.sheet}, ô ${m.cell}`, sheet: m.sheet, cell: m.cell })),
   };
 }

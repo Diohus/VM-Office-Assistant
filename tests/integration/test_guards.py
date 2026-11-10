@@ -103,9 +103,16 @@ def test_loi_may_chu_khong_bao_la_mat_ket_noi(run):
 def test_qua_5000_o_bao_ngay_khong_gui_di(run):
     many = run["too_many"]
     assert many["posts"] == 0, "không gửi lên máy chủ"
-    assert "quá 5000 ô sửa" in many["error"] and "chưa ghi" in many["error"] and "vẫn còn trên màn hình" in many["error"]
+    assert "có 7500 ô sửa, quá 5000 ô" in many["error"] and "chưa ghi" in many["error"] and "vẫn còn trên màn hình" in many["error"]
+    # T-DEV-06: cách làm tiếp phải làm được thật. Đo 10/11: sau khi Lưu, Làm lại không đưa lại phần đã hoàn tác.
+    # Thư viện lưới chỉ giữ 50 bước Hoàn tác (đo 10/11), nên câu chỉ đường Xuất > Bỏ thay đổi, đã thử bỏ hết sửa trong một bước.
+    assert "bấm Xuất, chọn Bỏ thay đổi, rồi bấm Hủy" in many["error"] and "không quá 5000 ô" in many["error"]
+    assert many["error"].count("vẫn còn trên màn hình") == 1 and many["error"].endswith("bấm Lưu sau mỗi phần."), "câu còn trên màn hình nằm trước, không lặp ở cuối"
+    assert "Hoàn tác cho tới khi" not in many["error"] and "Làm lại" not in many["error"]
     assert "mất kết nối" not in many["error"]
     assert many["dirty"] == 7500 and many["state"] == "Bản 1"
+    gone = run["too_many_discard"]
+    assert gone["dirty"] == 0 and gone["state"] == "Bản 1" and gone["a2"] is None, "Xuất > Bỏ thay đổi > Hủy bỏ hết sửa"
 
 
 def test_luu_loi_khong_mo_file_kia_va_con_sua(run):
