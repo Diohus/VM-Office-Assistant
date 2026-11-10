@@ -121,7 +121,7 @@ def grade_read(f: ReadFacts) -> Graded:
     if f.kind is SourceKind.XLSX:
         if f.is_formula:
             return Graded(Color.YELLOW, (Reason("READ_XLSX_CACHED_FORMULA", "Dùng giá trị đã lưu của công thức nguồn"),))
-        return Graded(Color.GREEN, (Reason("READ_XLSX_DIRECT", "Đọc trực tiếp từ Excel"),))
+        return Graded(Color.GREEN, (Reason("READ_XLSX_DIRECT", "Chép từ file Excel"),))  # Q131: không chép tên file vào detail
     if not f.pdf_text_verified:
         return Graded(Color.YELLOW, (Reason("READ_PDF_TEXT_UNVERIFIED", "Đọc từ lớp chữ PDF, chưa so với thứ hiển thị trên trang"),))
     return Graded(Color.GREEN, (Reason("READ_PDF_TEXT_DIRECT", "Lớp chữ PDF khớp với OCR đọc từ ảnh dựng của trang"),))

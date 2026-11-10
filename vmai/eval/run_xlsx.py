@@ -176,18 +176,39 @@ def other_machine_source(path: Path, bias: float = 0.01, seed: int = 7) -> Path:
     return path
 
 
+# Q131: rủi ro Owner chấp nhận. Xanh = chép đúng số từ file người dùng đã chọn; chọn nhầm file máy khác không ghi mã máy thì
+# số sai vẫn xanh. Ghim đúng con số và phạm vi: đổi số hoặc file có dấu hiệu mã máy thì báo lỗi, để rủi ro không lan lặng lẽ.
+Q131_ACCEPTED = {"proposals": 180, "wrong_green": 180}
+_MACHINE_WORDS = ("máy", "may ", "thiết bị", "thiet bi", "instrument", "analyzer", "analyser", "device")
+
+
+def machine_marks(path: Path) -> list[str]:
+    """Chữ trong file nguồn trông như ghi mã máy: tên sheet hoặc ô có các từ trong `_MACHINE_WORDS`. Chỉ để ghim phạm vi Q131."""
+    import openpyxl
+
+    wb = openpyxl.load_workbook(path, read_only=True)
+    found = [ws.title for ws in wb if any(w in ws.title.lower() for w in _MACHINE_WORDS)]
+    for ws in wb:
+        for row in ws.iter_rows(values_only=True):
+            found += [v for v in row if isinstance(v, str) and any(w in v.lower() for w in _MACHINE_WORDS)]
+    wb.close()
+    return found
+
+
 def known_leak_q118(tmp: Path) -> dict:
-    """Ca đã biết đang lọt (Q118): biểu mẫu khai sẵn, hồ sơ đã xác nhận, file của máy khác. Không tính vào tổng sai xanh."""
+    """Rủi ro Owner chấp nhận (Q131), trước là ca lọt Q118: biểu mẫu khai sẵn, hồ sơ đã xác nhận, nạp nhầm file máy khác
+    không ghi mã máy. Không tính vào tổng sai xanh, cũng không tính là đạt."""
     directory = CASE_DIRS[0] / "X01_m0"
     answer = json.loads((directory / "answer.json").read_text(encoding="utf-8"))
     gold = {c["a1"]: c["value"] for c in answer["cells"] if not c["a1"].startswith("H")}
     form = read_form(directory / "template.xlsx", SPEC)
-    source = read_source(other_machine_source(tmp / "x01_may_khac.xlsx"))
+    path = other_machine_source(tmp / "x01_khac.xlsx")
+    source = read_source(path)
     batch = propose(form, source, plan_headers(form, source, load_profile(answer, form.fingerprint)))
     wrong_green = sum(
         1 for c in batch.changes if c.confidence.final_color.value == "green" and not _same(c.value.normalized, str(gold.get(c.target.a1_at_write)))
     )
-    return {"case": "Q118_file_may_khac", "proposals": len(batch.changes), "wrong_green": wrong_green}
+    return {"case": "Q118_file_may_khac", "proposals": len(batch.changes), "wrong_green": wrong_green, "machine_marks": machine_marks(path)}
 
 
 def _qc_values(path: Path) -> dict[tuple, float]:
@@ -362,14 +383,15 @@ def main() -> None:
     bad += [r["case"] for r in stale if not r["ok"]]
     with tempfile.TemporaryDirectory() as tmp:
         leak = known_leak_q118(Path(tmp))
-    if leak["wrong_green"]:
-        # Q118: in riêng, không gộp vào số tổng 0 sai xanh.
-        print(f"\nĐANG LỌT, Q118: {leak['wrong_green']}/{leak['proposals']} sai xanh khi nạp file máy khác")
-    else:
-        # Đã chặn được thì phải bỏ ca này khỏi danh sách đã biết và bỏ xfail trong test, không để lặng lẽ.
-        bad.append("Q118 không còn lọt: bỏ khỏi danh sách ca đã biết và bỏ xfail trong tests/test_known_leaks.py")
+    # Q131: in riêng, không gộp vào số 0 sai xanh, không tính là đạt.
+    print(f"\nRỦI RO OWNER CHẤP NHẬN, Q131: {leak['wrong_green']}/{leak['proposals']} ô xanh sai khi nạp nhầm file máy khác không ghi mã máy. Không tính vào số sai xanh.")
+    if {k: leak[k] for k in Q131_ACCEPTED} != Q131_ACCEPTED:
+        # Tăng là có đường mới; giảm thì phải ghi lại quyết định, sửa Q131_ACCEPTED và xfail trong tests/test_known_leaks.py.
+        bad.append(f"Rủi ro Q131 đổi: {leak['wrong_green']}/{leak['proposals']}, đã ghim {Q131_ACCEPTED['wrong_green']}/{Q131_ACCEPTED['proposals']}")
+    if leak["machine_marks"]:
+        bad.append(f"Ca rủi ro Q131 có dấu hiệu mã máy, không còn đúng phạm vi Owner chấp nhận: {sorted(set(leak['machine_marks']))[:3]}")
     outside = sum(r["errors_by_color"].get("green", 0) for r in results)
-    print(f"Tổng: {outside} sai xanh ngoài các ca đã biết; {1 if leak['wrong_green'] else 0} ca đã biết đang lọt")
+    print(f"Tổng: {outside} sai xanh ngoài rủi ro đã chấp nhận; 1 rủi ro Owner chấp nhận (Q131)")
     print("\nCó vấn đề:", bad or "không")
     sys.exit(1 if bad else 0)
 

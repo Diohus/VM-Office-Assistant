@@ -466,3 +466,12 @@ def test_guess_among_similar_columns_never_goes_green_after_saving(tmp_path, rig
     assert all("MAP_PROFILE_SIMILAR_COLUMNS" in _codes(c) for c in later.changes)
     if right == "KQ máy 1":
         assert all(c.value.normalized != gold[c.target.a1_at_write] for c in later.changes)  # đúng là đoán nhầm
+
+
+def test_uncoded_ui_sentences_are_in_the_snapshot_and_never_promise_correctness():
+    """Q131: giao diện so câu không gắn mã với bản chụp này. Không hứa "chắc đúng", không dùng chữ "xanh" trên giao diện."""
+    ui = doc_snapshot.load()["ui_texts"]
+    assert "Hộp duyệt nhóm ô xanh" in ui and "{tên file}" in ui["Hộp duyệt nhóm ô xanh"]
+    texts = list(ui.values()) + list(doc_snapshot.load()["reason_texts"].values())
+    assert not [s for s in texts if "chắc đúng" in s.lower()]
+    assert not [s for s in ui.values() if "xanh" in s.lower()]

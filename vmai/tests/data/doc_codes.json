@@ -152,7 +152,7 @@
   "READ_TEXT_LOOKS_LIKE_FORMULA": "Chữ trong nguồn trông giống công thức. App ghi nó dưới dạng chữ, không chạy.",
   "READ_UNIT_MISMATCH": "Đơn vị khác nhau: {nguồn} và {biểu mẫu}. App không tự đổi, số vẫn như trong nguồn.",
   "READ_XLSX_CACHED_FORMULA": "Ô nguồn là công thức. App dùng kết quả đã lưu trong file, có thể đã cũ.",
-  "READ_XLSX_DIRECT": "Đọc trực tiếp từ file Excel.",
+  "READ_XLSX_DIRECT": "Chép từ file {tên file}.",
   "READ_XLSX_TEXT_NUMBER": "Số trong file lưu dạng chữ, app đã đổi thành số.",
   "SOURCE_COLUMN_UNUSED": "Có cột chưa dùng: {cột}.",
   "SOURCE_DUPLICATE_RESULT": "Nguồn có nhiều kết quả cho cùng một ô. App hiện tất cả, không tự chọn.",
@@ -175,5 +175,8 @@
   "TABLE_AMBIGUOUS": "Có nhiều bảng khớp như nhau trong biểu mẫu. Bảng nào cần điền?",
   "TABLE_NOT_FOUND": "App chưa nhận ra bố cục của biểu mẫu này.",
   "TEMPLATE_UNREADABLE": "Không mở được biểu mẫu."
+ },
+ "ui_texts": {
+  "Hộp duyệt nhóm ô xanh": "Các ô ✓ Khớp file đã chọn nghĩa là app chép đúng số từ file {tên file}. App không biết đây có đúng là file anh/chị cần không. Hãy nhìn lại tên file trước khi duyệt."
  }
 }

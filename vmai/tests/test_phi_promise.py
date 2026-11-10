@@ -104,3 +104,19 @@ def test_forged_header_map_cannot_pull_a_phi_column_in(tmp_path):
     assert len(forged.changes) == len(baseline.changes)
     dumped = forged.model_dump_json()
     assert not any(v in dumped for v in values)
+
+
+def test_source_file_name_never_goes_into_reason_details(tmp_path):
+    """Q131: câu "Chép từ file {tên file}." do giao diện điền. `vmai` không chép tên file vào `detail`, vì tên file có thể
+    chứa tên người. [MẪU GIẢ] Tên trong tên file là giả."""
+    import shutil
+
+    stem = "KQ_Nguyen_Gia_Thu"
+    path = tmp_path / f"{stem}.xlsx"
+    shutil.copyfile(CASE / "source.xlsx", path)
+    form = read_form(CASE / "template.xlsx", SPEC)
+    source = read_source(path)
+    batch = propose(form, source, plan_headers(form, source))
+    details = [r.detail or "" for c in batch.changes for r in c.confidence.reasons] + [n.detail or "" for n in batch.notices]
+    assert any(r.code == "READ_XLSX_DIRECT" for c in batch.changes for r in c.confidence.reasons)
+    assert not [d for d in details if stem.lower() in d.lower() or "nguyen_gia" in d.lower()]

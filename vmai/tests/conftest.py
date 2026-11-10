@@ -30,3 +30,13 @@ def pytest_sessionstart(session):
         maker.make()
     except SystemExit as exc:
         pytest.exit(f"Không sinh được fixture giả, test bẫy không chạy được: {exc}", returncode=1)
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Q131: in rủi ro Owner chấp nhận ở cuối mọi lần chạy, kể cả `-q`. Không tính vào số đạt."""
+    leak = getattr(config, "q131_result", None)
+    if leak is None:
+        line = "RỦI RO OWNER CHẤP NHẬN, Q131: chưa đo trong lần chạy này (chạy tests/test_known_leaks.py)"
+    else:
+        line = f"RỦI RO OWNER CHẤP NHẬN, Q131: {leak['wrong_green']}/{leak['proposals']} ô xanh sai khi nạp nhầm file máy khác không ghi mã máy"
+    terminalreporter.write_line(line, yellow=True, bold=True)

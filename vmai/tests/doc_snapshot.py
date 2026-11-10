@@ -32,6 +32,21 @@ def _sentences(text: str) -> dict[str, str]:
     return out
 
 
+def _ui_texts(text: str) -> dict[str, str]:
+    """Bảng "Câu không gắn mã": cột "Chỗ hiện" -> "Câu hiện". Giao diện so câu với bản chụp này (phần 3)."""
+    out: dict[str, str] = {}
+    columns = None
+    for line in text.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")] if line.startswith("|") else None
+        if cells is None:
+            columns = None
+        elif "Chỗ hiện" in cells and "Câu hiện" in cells:
+            columns = (cells.index("Chỗ hiện"), cells.index("Câu hiện"))
+        elif columns and not set(cells[0]) <= set("-: ") and max(columns) < len(cells):
+            out.setdefault(cells[columns[0]], cells[columns[1]])
+    return out
+
+
 def build() -> dict:
     rules = (DOCS / "confidence_rules.md").read_text(encoding="utf-8")
     texts = (DOCS / "reason_texts.md").read_text(encoding="utf-8")
@@ -41,6 +56,7 @@ def build() -> dict:
         "note": "Sinh bởi vmai/tests/doc_snapshot.py từ docs/ai. Không sửa tay.",
         "confidence_rules_codes": sorted(set(_CODE.findall(rules))),
         "reason_texts": {code: sentences.get(code, "") for code in sorted(mentioned)},
+        "ui_texts": _ui_texts(texts),
     }
 
 

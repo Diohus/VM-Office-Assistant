@@ -36,7 +36,7 @@ Ca giới hạn (lô lớn, tiêu đề lạ, nhiều nguồn), tự tạo dữ 
 .venv/Scripts/python.exe -W ignore eval/run_limits.py --quick
 ```
 
-Đo "nghi nhầm file cũ" (chỉ đo, chưa là quy tắc): `.venv/Scripts/python.exe eval/run_stale_share.py`. Ca đã biết đang lọt (Q118) in riêng ở `run_xlsx.py`; test `tests/test_known_leaks.py` là xfail strict.
+Đo "nghi nhầm file cũ" (chỉ đo, chưa là quy tắc): `.venv/Scripts/python.exe eval/run_stale_share.py`. Rủi ro Owner chấp nhận (Q131, trước là Q118) in riêng ở `run_xlsx.py` và ở cuối `pytest`; test `tests/test_known_leaks.py` là xfail strict, số 180/180 được ghim.
 
 Các script eval tự in UTF-8 (`eval/_console.py`), không cần `PYTHONIOENCODING`.
 
