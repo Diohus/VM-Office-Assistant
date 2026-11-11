@@ -26,6 +26,8 @@ const BORDER = {
 const TOLERANCE = 1e-6;
 const EMU_PER_PX = 9525;
 const CALC_DEADLINE_MS = 60000;
+// Có giá trị mới mà bộ tính chưa báo bắt đầu: coi là đang chờ tính trong khoảng này (T-DEV-08).
+const CALC_START_GRACE_MS = 1000;
 const CALC_STABLE_MS = 4000;
 const DEFAULT_COL_CHARS = 8;
 const GENERAL_MAX_CHARS = 11;
@@ -236,7 +238,7 @@ function editsShown(typed, shown) {
   return head + tail >= shown.length - 3;
 }
 
-export function createGrid(container, model, { readOnly = false, onAmbiguousNumber, onDecimalSwapped, onHiddenDigits, onLockedCell, onPasted, onChange, onEditDone } = {}) {
+export function createGrid(container, model, { readOnly = false, onAmbiguousNumber, onDecimalSwapped, onHiddenDigits, onLockedCell, onPasted, onChange, onEditDone, onCalculating } = {}) {
   const { univer, univerAPI } = createUniver({
     locale: LocaleType.VI_VN,
     locales: { [LocaleType.VI_VN]: mergeLocales(coreVi, cfVi, dvVi, drawVi) },
@@ -343,6 +345,65 @@ export function createGrid(container, model, { readOnly = false, onAmbiguousNumb
   };
   const calcListener = univerAPI.getFormula().calculationResultApplied(scheduleRefresh);
 
+  // T-DEV-08: biết bộ tính còn chạy hay không, chỉ qua API công khai (calculationStart, calculationEnd).
+  // Trước đây "tính xong" nghĩa là ô công thức có giá trị, nên sau một lần sửa, ô còn giữ số cũ vẫn bị coi là xong:
+  // đo 10/11, bảng 18000 × 10 hiện số cũ khoảng 4 giây, không báo gì. QC tháng, bảng 300 × 25: dưới 0,1 giây.
+  // Ô có giá trị mới thì đánh dấu chờ tính ngay, để không có khoảng hở trước khi bộ tính kịp báo bắt đầu.
+  const formulaApi = univerAPI.getFormula();
+  let calcRunning = false;
+  let calcPendingAt = 0;
+  let calcHold = false; // chỉ cho test: giả lập bộ tính không bao giờ báo xong
+  let resultPending = false; // có lượt tính đã chạy mà settled() chưa chờ kết quả được ghi vào lưới
+  let calcTimeoutMs = CALC_DEADLINE_MS;
+  let lastBusy = false;
+  const calcWaiters = new Set();
+  const calcBusy = () => calcRunning || (calcPendingAt > 0 && Date.now() - calcPendingAt < CALC_START_GRACE_MS);
+  function notifyCalc() {
+    if (disposed) return;
+    if (calcPendingAt && Date.now() - calcPendingAt >= CALC_START_GRACE_MS) calcPendingAt = 0;
+    const busy = calcBusy();
+    if (busy !== lastBusy) {
+      lastBusy = busy;
+      onCalculating?.(busy);
+    }
+    if (!busy) for (const wake of [...calcWaiters]) wake();
+  }
+  const calcStartListener = formulaApi.calculationStart(() => {
+    calcRunning = true;
+    resultPending = true;
+    calcPendingAt = 0;
+    notifyCalc();
+  });
+  const calcEndListener = formulaApi.calculationEnd(() => {
+    if (calcHold) return;
+    calcRunning = false;
+    notifyCalc();
+  });
+  function markCalcPending() {
+    if (calcRunning) return;
+    calcPendingAt = Date.now();
+    notifyCalc();
+    setTimeout(notifyCalc, CALC_START_GRACE_MS + 20);
+  }
+  // Chờ bộ tính xong. Trả { ok: true } hoặc { ok: false, timedOut: true } khi quá hạn: không bao giờ chờ mãi.
+  function waitCalcIdle(timeoutMs = calcTimeoutMs) {
+    if (!calcBusy()) return Promise.resolve({ ok: true });
+    return new Promise((resolve) => {
+      let tick = null;
+      let timer = null;
+      const finish = (result) => {
+        clearInterval(tick);
+        clearTimeout(timer);
+        calcWaiters.delete(wake);
+        resolve(result);
+      };
+      const wake = () => finish({ ok: true });
+      calcWaiters.add(wake);
+      tick = setInterval(notifyCalc, 100);
+      timer = setTimeout(() => finish({ ok: false, timedOut: true }), timeoutMs);
+    });
+  }
+
   const lockedAt = (name, r, c) => {
     const sh = model.sheets.find((x) => x.name === name);
     if (!sh?.protected) return false;
@@ -432,6 +493,7 @@ export function createGrid(container, model, { readOnly = false, onAmbiguousNumb
   // Báo App khi nội dung hoặc trạng thái đang gõ đổi, gộp lại vì mỗi lần kiểm phải đọc cả bảng.
   let changeTimer = null;
   univerAPI.addEvent(univerAPI.Event.CommandExecuted, (e) => {
+    if (e.id === 'sheet.mutation.set-range-values') markCalcPending();
     if (e.id !== 'sheet.mutation.set-range-values' && e.id !== 'sheet.operation.set-cell-edit-visible') return;
     clearTimeout(changeTimer);
     changeTimer = setTimeout(() => {
@@ -545,10 +607,27 @@ export function createGrid(container, model, { readOnly = false, onAmbiguousNumb
     undo: () => univerAPI.undo(),
     redo: () => univerAPI.redo(),
     formula: (sheet, ref) => wb.getSheetByName(sheet).getRange(ref).getFormula(),
+    // Chờ ảnh, chờ bộ tính xong rồi kết quả được ghi vào lưới. Trả { ok } như waitCalcIdle: ok false là quá hạn, số có thể còn cũ.
     settled: async () => {
       await imagesDone;
+      const calc = await waitCalcIdle();
+      if (calc.ok && resultPending) {
+        resultPending = false;
+        await formulaApi.onCalculationResultApplied(5000).catch(() => {});
+      }
       await waitForCalculation();
       refreshGeneralPatterns();
+      return calc;
+    },
+    isCalculating: () => calcBusy(),
+    // Chỉ cho test (T-DEV-08): giữ bộ tính như không bao giờ báo xong, và rút ngắn hạn chờ.
+    testHoldCalculation(on) {
+      calcHold = Boolean(on);
+      calcRunning = calcHold; // bật: như bộ tính đã bắt đầu mà không bao giờ báo xong
+      notifyCalc();
+    },
+    testCalcTimeout(ms) {
+      calcTimeoutMs = ms ?? CALC_DEADLINE_MS;
     },
     visibleSheets: () => wb.getSheets().filter((ws) => !ws.isSheetHidden()).map((ws) => ws.getSheetName()),
     value(sheet, ref) {
@@ -594,6 +673,9 @@ export function createGrid(container, model, { readOnly = false, onAmbiguousNumb
       clearTimeout(refreshTimer);
       clearTimeout(changeTimer);
       calcListener.dispose();
+      calcStartListener.dispose();
+      calcEndListener.dispose();
+      for (const wake of [...calcWaiters]) wake();
       endUndoBatch();
       univer.dispose();
     },

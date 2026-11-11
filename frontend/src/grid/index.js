@@ -5,5 +5,7 @@
 //   goTo(sheetName, a1)                                              chuyển sheet, chọn ô
 //   visibleSheets(): string[]                                        tên sheet người dùng thấy
 //   value(sheetName, a1)                                             giá trị thô đã tính
+//   settled(): Promise<{ ok, timedOut? }>                            chờ bộ tính xong; ok false là quá hạn, ô công thức có thể còn số cũ
+//   isCalculating()                                                  bộ tính còn chạy (tùy chọn onCalculating báo khi đổi)
 //   destroy()
 export { createGrid } from './univerAdapter.js';

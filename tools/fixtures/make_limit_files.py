@@ -55,6 +55,31 @@ def main() -> None:
     ws["A1"] = "[MẪU GIẢ] Bảng lớn để thử giới hạn số ô sửa trong một lần lưu"
     ws.cell(row=300, column=25, value="hết")
     wb.save(OUT / "GIA-LON_300x25.xlsx")
+    # T-DEV-08: gần giới hạn ô, 18000 ô công thức: bộ tính mất vài giây sau mỗi lần sửa.
+    rnd = random.Random(180)
+    wb = openpyxl.Workbook(write_only=True)
+    ws = wb.create_sheet("Lon")
+    ws.append(["[MẪU GIẢ] Gần giới hạn ô: 18000 dòng × 10 cột, cột J là công thức"] + [None] * 9)
+    ws.append(["Ngày", "A", "B", "C", "D", "E", "F", "G", "H", "Tổng"])
+    for r in range(3, 18003):
+        ws.append([f"{(r % 28) + 1:02d}/09"] + [round(rnd.uniform(0, 100), 2) for _ in range(8)] + [f"=SUM(B{r}:I{r})"])
+    wb.create_sheet("TongHop").append(["Tổng toàn bảng", "=SUM(Lon!J3:J18002)"])
+    wb.save(OUT / "GIA-GAN_200000_o.xlsx")
+    # T-DEV-08: cỡ biểu mẫu thật, 300 dòng × 25 cột có tổng dòng và tổng cột.
+    rnd = random.Random(300)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Bang"
+    ws["A1"] = "[MẪU GIẢ] 300 dòng × 25 cột có công thức"
+    for r in range(3, 303):
+        ws.cell(r, 1, f"Dòng {r - 2}")
+        for c in range(2, 25):
+            ws.cell(r, c, round(rnd.uniform(0, 100), 2))
+        ws.cell(r, 25, f"=SUM(B{r}:X{r})")
+    for c in range(2, 26):
+        col = openpyxl.utils.get_column_letter(c)
+        ws.cell(303, c, f"=SUM({col}3:{col}302)")
+    wb.save(OUT / "GIA-CONG_THUC_300x25.xlsx")
     for p in sorted(OUT.iterdir()):
         print(p.name, round(p.stat().st_size / 1024 / 1024, 1), "MB")
 

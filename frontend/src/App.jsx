@@ -30,6 +30,9 @@ function Icon({ d }) {
 // Trước đây bàn phím rơi ra ngoài trang, phím gõ ngay sau đó bị mất.
 const keepFocus = (e) => e.preventDefault();
 
+const CALCULATING_TEXT = 'Đang tính lại các ô công thức, số trong các ô đó có thể chưa mới...';
+const CALC_TIMEOUT_TEXT = 'App chưa tính xong các ô công thức nên chưa xuất PDF, để PDF không có số cũ. Biểu mẫu của anh/chị không bị đổi. Hãy chờ dòng "Đang tính lại" biến mất rồi bấm Tải PDF lại.';
+
 function NoticeBar({ notice, onClose, onGo }) {
   const [open, setOpen] = useState(false);
   return (
@@ -79,6 +82,9 @@ export default function App() {
   const [doc, setDoc] = useState(null);
   const [viewing, setViewing] = useState(null); // số bản cũ đang xem, null là đang ở bản mới nhất
   const [busy, setBusy] = useState(false);
+  // T-DEV-08: bộ tính đang chạy thì ô công thức có thể còn số cũ. Chỉ hiện khi tính lâu hơn 300 ms, để không nhấp nháy.
+  const [calculating, setCalculating] = useState(false);
+  const calcTimer = useRef(null);
   const [error, setError] = useState(null);
   const [notices, setNotices] = useState([]);
   const [closed, setClosed] = useState(new Set());
@@ -159,6 +165,11 @@ export default function App() {
       onLockedCell: (info) => pushNotice(lockedCellNotice(info)),
       // Ô đã ghi hoặc đã bỏ: lời báo "chưa ghi" của lần gõ trước không còn đúng.
       onEditDone: () => setNotices((list) => list.filter((n) => n.id !== 'ambiguous' && n.id !== 'hidden-digits')),
+      onCalculating: (on) => {
+        clearTimeout(calcTimer.current);
+        if (on) calcTimer.current = setTimeout(() => setCalculating(true), 300);
+        else setCalculating(false);
+      },
       onChange: () => {
         const now = isDirty();
         setDirty(now);
@@ -335,6 +346,7 @@ export default function App() {
             <div className="editbar" onMouseDown={(e) => e.preventDefault()}>
               <button type="button" className="btn-line" onClick={() => gridRef.current?.undo()}>Hoàn tác</button>
               <button type="button" className="btn-line" onClick={() => gridRef.current?.redo()}>Làm lại</button>
+              {calculating && <span className="calc-status" role="status" data-testid="calc-status">{CALCULATING_TEXT}</span>}
             </div>
           )}
           {viewing !== null && (
@@ -423,7 +435,8 @@ export default function App() {
           title="Xuất file"
           actions={[
             { label: 'Tải PDF', onClick: () => { setDialog(null); run(async () => {
-              await gridRef.current.settled();
+              const calc = await gridRef.current.settled();
+              if (calc && !calc.ok) throw new ApiError(CALC_TIMEOUT_TEXT, 'CALC_TIMEOUT');
               const { blob, name } = await exportPdf(doc.document_id, { version: viewing, grid_values: gridRef.current.formulaValues() });
               const url = URL.createObjectURL(blob);
               const a = document.createElement('a');

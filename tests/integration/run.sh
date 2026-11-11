@@ -4,7 +4,7 @@ set -eu
 PY="${VM_PY:-workers/reader/.venv/Scripts/python.exe}"
 [ -x "$PY" ] || PY=workers/reader/.venv/bin/python
 SEP=":"; case "$(uname -s)" in MINGW*|MSYS*) SEP=";" ;; esac
-[ -f fixtures/generated/GIA-LON_300x25.xlsx ] || "$PY" tools/fixtures/make_limit_files.py > /dev/null
+[ -f fixtures/generated/GIA-CONG_THUC_300x25.xlsx ] || "$PY" tools/fixtures/make_limit_files.py > /dev/null
 # Bộ container riêng, cổng riêng: test có tắt API, không được đụng tới app đang có người dùng.
 export VM_PROJECT=vm-office-test WEB_PORT=8089 VM_BASE=http://127.0.0.1:8089
 mkdir -p tests/integration/out
