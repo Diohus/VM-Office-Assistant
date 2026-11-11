@@ -50,6 +50,7 @@ _BUSY = "App chưa xử lý được vì hệ thống đang bận hoặc chưa s
 _LEGACY_CONVERTED = "Đây là file đời cũ, app đã chuyển sang định dạng mới để mở, và sẽ lưu thành .xlsx. Bản gốc còn nguyên. Trình bày có thể lệch một chút."
 _LEGACY_FAILED = "App chưa mở được file đời cũ này. Bản gốc không bị đổi. Hãy thử mở bằng Excel, lưu thành .xlsx rồi tải lại."
 _PDF_DOWN = "App chưa xuất được PDF vì phần xử lý PDF đang không chạy. Biểu mẫu của anh/chị không bị đổi. Anh/chị vẫn xuất được file Excel, hoặc thử lại sau."
+_PDF_SLOW = "File này lớn nên xuất PDF quá lâu, app đã dừng sau 2 phút. Biểu mẫu của anh/chị không bị đổi. Anh/chị vẫn xuất được file Excel; muốn có PDF thì mở file Excel bằng Excel rồi in ra PDF."
 _PDF_FAILED = "App chưa xuất được PDF từ file này. Biểu mẫu của anh/chị không bị đổi. Anh/chị vẫn xuất được file Excel."
 _STALE = "Bản này đã có thay đổi mới hơn nên app chưa ghi. Bản đang lưu không bị đổi. Hãy mở lại bản mới nhất rồi sửa lại."
 
@@ -166,7 +167,7 @@ async def upload(request: Request, filename: str):
         try:
             converted = await run_in_threadpool(converter_client.xls_to_xlsx, data)
             checked = await run_in_threadpool(reader_client.read, converted, name.rsplit(".", 1)[0] + ".xlsx")
-        except (converter_client.ConverterUnavailable, converter_client.ConversionFailed, reader_client.ReaderUnavailable):
+        except (converter_client.ConverterUnavailable, converter_client.ConversionFailed, converter_client.ConverterTimeout, reader_client.ReaderUnavailable):
             return _problem(422, "FILE_LEGACY_FAILED", _LEGACY_FAILED)
         if not checked["ok"]:
             return _problem(422, "FILE_LEGACY_FAILED", _LEGACY_FAILED)
@@ -268,6 +269,8 @@ def export_pdf(document_id: str, body: PdfRequest):
     try:
         pdf, computed, seconds = converter_client.pdf(data, body.decimal)
         cells = reader_client.values(computed)
+    except converter_client.ConverterTimeout:
+        return _problem(504, "PDF_TOO_SLOW", _PDF_SLOW)
     except converter_client.ConverterUnavailable:
         return _problem(503, "PDF_UNAVAILABLE", _PDF_DOWN)
     except (converter_client.ConversionFailed, reader_client.ReaderUnavailable):

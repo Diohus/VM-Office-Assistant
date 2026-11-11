@@ -20,6 +20,10 @@ class ConversionFailed(Exception):
     pass
 
 
+class ConverterTimeout(Exception):
+    """Worker còn sống nhưng việc chạy quá hạn: file lớn, xuất quá lâu. Khác với worker không chạy (T-DEV-10)."""
+
+
 def _write_atomic(path, data: bytes) -> None:
     fd, tmp = tempfile.mkstemp(dir=CONVERTER_SPOOL_DIR, suffix=".tmp")
     with os.fdopen(fd, "wb") as fh:
@@ -45,11 +49,15 @@ def _run(kind: str, data: bytes, outputs: tuple[str, ...], **options) -> tuple[d
     deadline = time.monotonic() + CONVERTER_TIMEOUT_SECONDS
     try:
         while not result.exists():
-            if time.monotonic() > deadline or not _alive():
+            if time.monotonic() > deadline:
+                raise ConverterTimeout
+            if not _alive():
                 raise ConverterUnavailable
             time.sleep(POLL_SECONDS)
         info = json.loads(result.read_text(encoding="utf8"))
         if not info.get("ok"):
+            if info.get("reason") == "timeout":
+                raise ConverterTimeout
             raise ConversionFailed(info.get("reason"))
         return info, {name: path.read_bytes() for name, path in files.items()}
     finally:

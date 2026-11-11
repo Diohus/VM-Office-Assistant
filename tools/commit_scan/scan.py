@@ -85,7 +85,8 @@ def commit_files() -> list[str]:
         # Bản xuất sạch không phải repo git: liệt kê thẳng, chỉ bỏ những gì do chạy test sinh ra.
         listed = [p.relative_to(ROOT).as_posix() for p in ROOT.rglob("*") if p.is_file() and not set(p.relative_to(ROOT).parts) & _GENERATED_DIRS]
     out = []
-    for path in sorted(p for p in listed if p):
+    # File đã theo dõi nhưng đã xóa hoặc chuyển chỗ trong cây làm việc: commit sẽ xóa nó, không có gì để quét.
+    for path in sorted(p for p in listed if p and (ROOT / p).is_file()):
         if any(path == i or path.startswith(i.rstrip("/") + "/") for i in include) and not any(fnmatch.fnmatch(path, e) or path.startswith(e.rstrip("/") + "/") for e in exclude):
             out.append(path)
     return out

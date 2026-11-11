@@ -238,7 +238,7 @@ function editsShown(typed, shown) {
   return head + tail >= shown.length - 3;
 }
 
-export function createGrid(container, model, { readOnly = false, onAmbiguousNumber, onDecimalSwapped, onHiddenDigits, onLockedCell, onPasted, onChange, onEditDone, onCalculating } = {}) {
+export function createGrid(container, model, { readOnly = false, onAmbiguousNumber, onDecimalSwapped, onHiddenDigits, onLockedCell, onPasted, onChange, onEditDone, onCalculating, onUndoRedo } = {}) {
   const { univer, univerAPI } = createUniver({
     locale: LocaleType.VI_VN,
     locales: { [LocaleType.VI_VN]: mergeLocales(coreVi, cfVi, dvVi, drawVi) },
@@ -261,6 +261,10 @@ export function createGrid(container, model, { readOnly = false, onAmbiguousNumb
   // Cách hiện số theo dấu thập phân của app (numberFormat.js, Q122). Chữ giao diện vẫn tiếng Việt.
   wb.setNumfmtLocal(NUMFMT_LOCALE);
   const undoRedo = univer.__getInjector().get(IUndoRedoService);
+  // T-DEV-06b: nút Hoàn tác, Làm lại chỉ sáng khi còn bước để làm. Thư viện giữ tối đa 50 bước (đo 10/11);
+  // sau khi Lưu, lưới được tạo lại nên không còn gì để Làm lại. Trước đây hai nút luôn sáng, bấm không làm gì.
+  const reportUndoRedo = () => onUndoRedo?.(undoRedo.getUndoRedoStatus(wb.getId()));
+  const undoSub = undoRedo.undoRedoStatus$.subscribe(() => reportUndoRedo());
   let lastTyped = null;
   let undoBatch = null;
   let typedCount = 0;
@@ -271,6 +275,10 @@ export function createGrid(container, model, { readOnly = false, onAmbiguousNumb
   const problems = applyRules(univerAPI, wb, model);
   const imagesDone = applyImages(wb, model).then((p) => {
     problems.push(...p);
+    // Dựng quy tắc tô màu, danh sách chọn, ảnh đi qua lệnh của thư viện nên vào lịch sử hoàn tác. Bấm Hoàn tác ngay sau khi mở
+    // sẽ gỡ chúng khỏi màn hình (T-DEV-06b, thấy 11/11). Xóa lịch sử ở đây: lưới chỉ cho sửa từ dòng dưới, nên không mất bước nào của người dùng.
+    undoRedo.clearUndoRedo(wb.getId());
+    reportUndoRedo();
     wb.setEditable(!readOnly);
   });
 
@@ -674,6 +682,7 @@ export function createGrid(container, model, { readOnly = false, onAmbiguousNumb
       clearTimeout(changeTimer);
       calcListener.dispose();
       calcStartListener.dispose();
+      undoSub.unsubscribe();
       calcEndListener.dispose();
       for (const wake of [...calcWaiters]) wake();
       endUndoBatch();

@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import zipfile
 
@@ -118,6 +119,27 @@ def _handle(job_file: pathlib.Path) -> None:
     (SPOOL / f"{job_id}.in").unlink(missing_ok=True)
 
 
+def start_heartbeat(stop: threading.Event | None = None) -> threading.Thread:
+    """Cập nhật .alive đều đặn từ một luồng riêng, kể cả khi đang chạy một việc dài (T-DEV-10).
+
+    Trước đây chỉ cập nhật giữa các việc, nên việc PDF quá 10 giây (bảng lớn) bị API báo nhầm là worker không chạy.
+    Worker chết thật thì luồng này chết theo, API vẫn báo đúng. Việc treo thì API có hạn chờ riêng (CONVERTER_TIMEOUT_SECONDS).
+    """
+    stop = stop or threading.Event()
+
+    def beat() -> None:
+        while not stop.is_set():
+            try:
+                ALIVE.touch()
+            except OSError:
+                pass
+            stop.wait(ALIVE_EVERY_SECONDS)
+
+    thread = threading.Thread(target=beat, name="alive", daemon=True)
+    thread.start()
+    return thread
+
+
 def _sweep() -> None:
     limit = time.time() - STALE_SECONDS
     for path in SPOOL.iterdir():
@@ -130,12 +152,12 @@ def _sweep() -> None:
 
 def main() -> None:
     print("converter ready", flush=True)
+    start_heartbeat()
     last = 0.0
     while True:
         now = time.monotonic()
         if now - last > ALIVE_EVERY_SECONDS:
-            ALIVE.touch()     # API nhìn file này để biết worker còn sống, báo lỗi ngay thay vì chờ hết giờ
-            _sweep()
+            _sweep()          # .alive do luồng start_heartbeat cập nhật, kể cả lúc đang chạy việc
             last = now
         jobs = sorted(SPOOL.glob("*.lojob"))
         for job in jobs:

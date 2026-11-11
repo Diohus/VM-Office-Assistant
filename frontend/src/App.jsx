@@ -84,6 +84,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   // T-DEV-08: bộ tính đang chạy thì ô công thức có thể còn số cũ. Chỉ hiện khi tính lâu hơn 300 ms, để không nhấp nháy.
   const [calculating, setCalculating] = useState(false);
+  const [undoRedo, setUndoRedo] = useState({ undos: 0, redos: 0 });
   const calcTimer = useRef(null);
   const [error, setError] = useState(null);
   const [notices, setNotices] = useState([]);
@@ -165,6 +166,7 @@ export default function App() {
       onLockedCell: (info) => pushNotice(lockedCellNotice(info)),
       // Ô đã ghi hoặc đã bỏ: lời báo "chưa ghi" của lần gõ trước không còn đúng.
       onEditDone: () => setNotices((list) => list.filter((n) => n.id !== 'ambiguous' && n.id !== 'hidden-digits')),
+      onUndoRedo: (st) => setUndoRedo({ undos: st?.undos ?? 0, redos: st?.redos ?? 0 }),
       onCalculating: (on) => {
         clearTimeout(calcTimer.current);
         if (on) calcTimer.current = setTimeout(() => setCalculating(true), 300);
@@ -344,8 +346,8 @@ export default function App() {
           )}
           {canEdit && (
             <div className="editbar" onMouseDown={(e) => e.preventDefault()}>
-              <button type="button" className="btn-line" onClick={() => gridRef.current?.undo()}>Hoàn tác</button>
-              <button type="button" className="btn-line" onClick={() => gridRef.current?.redo()}>Làm lại</button>
+              <button type="button" className="btn-line" disabled={!undoRedo.undos} onClick={() => gridRef.current?.undo()}>Hoàn tác</button>
+              <button type="button" className="btn-line" disabled={!undoRedo.redos} onClick={() => gridRef.current?.redo()}>Làm lại</button>
               {calculating && <span className="calc-status" role="status" data-testid="calc-status">{CALCULATING_TEXT}</span>}
             </div>
           )}
