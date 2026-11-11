@@ -234,7 +234,21 @@ def test_everything_crosses_services_as_json(x01):
     through = propose(form2, source2, plan2)
     keep = lambda b: [c.model_dump() for c in b.changes]  # noqa: E731
     assert keep(direct) == keep(through)
-    assert ProposalBatch.model_validate_json(through.model_dump_json()).schema_version == "0.4"
+    assert ProposalBatch.model_validate_json(through.model_dump_json()).schema_version == "0.4.1"
+
+
+def test_old_0_4_batch_without_items_still_reads(x01):
+    """0.4.1 chỉ thêm Notice.items không bắt buộc: lô 0.4 đã lưu (không có trường này) vẫn đọc được."""
+    import json
+
+    form, source, profile = x01
+    data = json.loads(propose(form, source, plan_headers(form, source, profile)).model_dump_json())
+    data["schema_version"] = "0.4"
+    for notice in data["notices"]:
+        notice.pop("items", None)
+    old = ProposalBatch.model_validate(data)
+    assert old.schema_version == "0.4"
+    assert all(n.items == [] for n in old.notices)
 
 
 # ---------- Hồ sơ ----------

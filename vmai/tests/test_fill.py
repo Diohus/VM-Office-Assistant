@@ -329,3 +329,87 @@ def test_some_names_shown_and_some_hidden(tmp_path):
     batch = _fill(tmp_path, source=_source_with_codes(tmp_path, {2: "Đường máu (giả)", 3: "Nguyễn Giả Lẫn", 4: "BN-GIA-000777"}))
     detail = next(n.detail for n in batch.notices if n.reason == "MAP_TEST_UNKNOWN")
     assert detail == "Đường máu (giả) và 2 tên khác không hiện ở đây"
+
+
+# ---- Chỗ trống của câu thông báo lát 1 (nghiệm thu K2, K3, N2, N3; lô 0.4.1, Notice.items)
+
+
+def _render(code: str, notice) -> str:
+    """Như giao diện (Dev, đã chốt 11/11): điền chỗ trống từ items, count, detail; ngày 08/09, tháng 10/2026."""
+    def day(iso: str) -> str:
+        return f"{iso[8:10]}/{iso[5:7]}"
+
+    values = {"n": str(notice.count), "tên": notice.detail}
+    if code == "SOURCE_MISSING_DAYS":
+        values["ngày"] = ", ".join(day(i) for i in notice.items)
+    elif code == "SOURCE_WRONG_MONTH":
+        values["tháng nguồn"] = ", ".join(f"{i[5:7]}/{i[:4]}" for i in notice.items)
+    elif code in ("PHI_COLUMN_SKIPPED", "PERSON_COLUMN_LEFT_BLANK"):
+        values["cột"] = ", ".join(notice.items)
+    texts = json.loads(fill_module.TEXTS.read_text(encoding="utf-8"))
+    sentence = texts["texts_lat1"].get(code) or texts["reason_texts"][code]
+    for key, value in values.items():
+        sentence = sentence.replace("{" + key + "}", value)
+    assert "{" not in sentence, (code, sentence)  # không chỗ trống nào thiếu giá trị
+    return sentence
+
+
+def _notice(tmp_path, name: str, code: str):
+    batch = _fill(tmp_path, template=TEMPLATES / "GIA-QC-01_mau.xlsx", source=LAT1 / name)
+    return batch, next(n for n in batch.notices if n.reason == code)
+
+
+def test_missing_days_notice_gives_each_day_once_as_iso(tmp_path):
+    batch, notice = _notice(tmp_path, "X03_thieu_3_ngay.xlsx", "SOURCE_MISSING_DAYS")
+    assert notice.count == len(notice.items) == 3
+    assert notice.items == sorted(set(notice.items))
+    assert all(len(i) == 10 and i[4] == i[7] == "-" and i.startswith("2026-09-") for i in notice.items)
+    filled = {p.value for c in batch.changes for p in c.target.row_key}
+    assert not filled & set(notice.items)  # đúng là các ngày không có đề xuất
+    sentence = _render("SOURCE_MISSING_DAYS", notice)
+    assert sentence.startswith("Nguồn thiếu: ") and all(f"{i[8:10]}/09" in sentence for i in notice.items)
+
+
+def test_wrong_month_notice_gives_count_and_source_month(tmp_path):
+    _, notice = _notice(tmp_path, "X13_sai_thang_10.xlsx", "SOURCE_WRONG_MONTH")
+    assert notice.items == ["2026-10"] and notice.count > 0
+    assert _render("SOURCE_WRONG_MONTH", notice) == (
+        f"File nguồn có {notice.count} dòng thuộc tháng 10/2026, không thuộc tháng của biểu mẫu nên app chưa điền."
+    )
+
+
+def test_patient_column_notice_names_the_columns_and_promises_nothing_about_sending(tmp_path):
+    batch, notice = _notice(tmp_path, "X17_cot_nguoi_benh_gia.xlsx", "PHI_COLUMN_SKIPPED")
+    assert notice.items == ["Họ tên người bệnh", "Mã BN"] and notice.count == 2
+    sentence = _render("PHI_COLUMN_SKIPPED", notice)
+    assert sentence == "File nguồn có cột giống thông tin người bệnh: Họ tên người bệnh, Mã BN. App không dùng các cột này."
+    assert user_message("PHI_COLUMN_SKIPPED", {"cột": ", ".join(notice.items)}).endswith("Kiểm tra file có nên dùng không.")
+
+
+def test_person_column_notice_names_the_column_once_with_no_repeated_action(tmp_path):
+    _, notice = _notice(tmp_path, "nguoi_chay_ten_gia.xlsx", "PERSON_COLUMN_LEFT_BLANK")
+    assert notice.items == ["Người chạy"] and notice.count == 1  # trước đây "Người chạy, Người chạy"
+    assert _render("PERSON_COLUMN_LEFT_BLANK", notice) == "Cột Người chạy để anh/chị tự viết, AI không điền."
+    message = user_message("PERSON_COLUMN_LEFT_BLANK", {"cột": "Người chạy"})
+    assert message == "Cột Người chạy để anh/chị tự viết, AI không điền. Biểu mẫu không bị đổi."  # không còn "Tự điền."
+
+
+@pytest.mark.parametrize("path", LAT1_FILES, ids=lambda p: p.stem)
+def test_no_lat1_sentence_promises_not_sending_and_items_are_never_cell_values(tmp_path, path):
+    batch = _fill(tmp_path, template=TEMPLATES / "GIA-QC-01_mau.xlsx", source=path)
+    texts = json.loads(fill_module.TEXTS.read_text(encoding="utf-8"))
+    for notice in batch.notices:
+        assert "gửi ra ngoài" not in notice.detail
+        if notice.reason in texts["reason_texts"]:
+            assert "gửi ra ngoài" not in (texts["texts_lat1"].get(notice.reason) or texts["reason_texts"][notice.reason])
+        assert len(notice.items) == len(set(notice.items)) <= 200 and all(len(i) <= 120 for i in notice.items)
+        for fake in ("Giả", "BN-GIA-"):
+            assert not any(fake in i for i in notice.items), (path.name, notice.reason)
+
+
+def test_no_sentence_in_any_table_promises_not_sending_out():
+    """PM 11/11 (US-1.3, Q94): app không hứa điều đội chưa chứng minh được, ở mọi lát, mọi bảng câu."""
+    texts = json.loads(fill_module.TEXTS.read_text(encoding="utf-8"))
+    tables = ("reason_texts", "texts_lat1", "actions", "actions_lat1", "ui_texts")
+    found = [(t, k) for t in tables for k, s in texts[t].items() if "gửi ra ngoài" in s.lower()]
+    assert not found, found

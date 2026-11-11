@@ -308,6 +308,7 @@ class _Builder:
         grouped: dict[tuple[tuple[str, ...], str], list[_Reading]] = defaultdict(list)
         unknown: dict[str, int] = defaultdict(int)
         wrong_period = not_in_template = 0
+        wrong_months: set[str] = set()  # "YYYY-MM" của các dòng sai kỳ, cho Notice.items (N2)
         seen_rows: set[tuple[str, ...]] = set()
 
         for record in records:
@@ -323,6 +324,7 @@ class _Builder:
                 day = as_date(key[key_dims.index(spec.period.field)])
                 if day and (day.year, day.month) != (self.form.period.year, self.form.period.month):
                     wrong_period += 1
+                    wrong_months.add(f"{day.year:04d}-{day.month:02d}")
                     continue
             if key not in self.rows:
                 not_in_template += 1
@@ -341,11 +343,14 @@ class _Builder:
                 confirmed = self._key_confirmed(record, [*key_dims, *column.dims])
                 grouped[(key, column.letter)].append(_Reading(cell, record, _worst(matches), confirmed))
 
-        self._record_notices(unknown, wrong_period, not_in_template)
+        self._record_notices(unknown, wrong_period, not_in_template, sorted(wrong_months))
         missing = [k for k in self.rows if k not in seen_rows]
         if missing and not wrong_period and seen_rows:
-            days = ", ".join(" ".join(k) for k in missing)
-            self.notices.append(Notice(reason="SOURCE_MISSING_DAYS", count=len(missing), detail=f"Nguồn thiếu: {days}. Để trống, không tự suy số."))
+            labels = list(dict.fromkeys(" ".join(k) for k in missing))  # ngày ISO, không lặp (K2)
+            self.notices.append(Notice(
+                reason="SOURCE_MISSING_DAYS", count=len(missing), items=labels,
+                detail=f"Nguồn thiếu: {', '.join(_day_label(k) for k in missing)}. Các ô đó để trống, app không tự suy số.",
+            ))
 
         by_letter = {c.letter: c for c in self.form.columns}
         styles = self._column_styles(grouped)
@@ -449,7 +454,7 @@ class _Builder:
 
     def _file_notices(self) -> None:
         plan, source = self.plan, self.source
-        add = lambda reason, count, detail: self.notices.append(Notice(reason=reason, count=count, detail=detail))  # noqa: E731
+        add = lambda reason, count, detail, items=(): self.notices.append(Notice(reason=reason, count=count, detail=detail, items=list(items)))  # noqa: E731
         if source.has_macros:
             add("FILE_MACRO_IGNORED", 1, "File có macro. Macro không được chạy.")
         if plan.profile_status is ProfileStatus.UNCONFIRMED:
@@ -457,11 +462,13 @@ class _Builder:
         elif plan.profile_status is ProfileStatus.INVALIDATED:
             add("PROFILE_INVALIDATED", 1, "Cấu trúc biểu mẫu hoặc tiêu đề nguồn đã đổi. Hồ sơ mất hiệu lực.")
         if plan.phi_headers:
-            add("PHI_COLUMN_SKIPPED", len(plan.phi_headers), f"Có cột giống dữ liệu người bệnh: {', '.join(plan.phi_headers)}. Không dùng và không gửi ra ngoài.")
+            # K3: không hứa "không gửi ra ngoài" (US-1.3, Q94). items là tiêu đề cột, không bao giờ giá trị ô.
+            phi = list(dict.fromkeys(plan.phi_headers))
+            add("PHI_COLUMN_SKIPPED", len(phi), f"File nguồn có cột giống thông tin người bệnh: {', '.join(phi)}. App không dùng các cột này.", phi)
         manual = [" / ".join(path) or letter for letter, path in self.form.manual_columns.items()]
         if manual or plan.person_headers:
-            names = ", ".join([*manual, *plan.person_headers])
-            add("PERSON_COLUMN_LEFT_BLANK", len(manual) + len(plan.person_headers), f"Thông tin về con người để nhân viên tự viết, AI không điền: {names}.")
+            names = list(dict.fromkeys([*manual, *plan.person_headers]))  # N3: cột biểu mẫu và cột nguồn cùng tên chỉ nêu một lần
+            add("PERSON_COLUMN_LEFT_BLANK", len(names), f"Cột {', '.join(names)} để anh/chị tự viết, AI không điền.", names)
         unchecked = [" / ".join(c.col_path) for c in self.form.columns if c.type == "number" and c.limit is None]
         if unchecked:
             add(
@@ -478,9 +485,14 @@ class _Builder:
         if source.hidden_sheets:
             add("SOURCE_HIDDEN_SHEETS_IGNORED", source.hidden_sheets, "Sheet ẩn không được đọc.")
 
-    def _record_notices(self, unknown: dict[str, int], wrong_period: int, not_in_template: int) -> None:
+    def _record_notices(self, unknown: dict[str, int], wrong_period: int, not_in_template: int, wrong_months: list[str] = ()) -> None:
         if wrong_period:
-            self.notices.append(Notice(reason="SOURCE_WRONG_MONTH", count=wrong_period, detail=f"{wrong_period} dòng không thuộc kỳ của biểu mẫu. Không điền."))
+            months = ", ".join(f"{m[5:]}/{m[:4]}" for m in wrong_months)
+            where = f" thuộc tháng {months}" if months else ""
+            self.notices.append(Notice(
+                reason="SOURCE_WRONG_MONTH", count=wrong_period, items=list(wrong_months),
+                detail=f"File nguồn có {wrong_period} dòng{where}, không thuộc tháng của biểu mẫu nên app chưa điền.",
+            ))
         if unknown:
             detail = _unknown_names_detail(unknown)  # giao diện điền vào {tên} của câu hiện
             self.notices.append(Notice(reason="MAP_TEST_UNKNOWN", count=sum(unknown.values()), detail=detail))

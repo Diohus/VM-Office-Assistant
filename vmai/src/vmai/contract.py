@@ -8,7 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .confidence import Color, SourceKind
 
-SCHEMA_VERSION = "0.4"
+SCHEMA_VERSION = "0.4.1"
+READABLE_SCHEMA_VERSIONS = ("0.4", "0.4.1")  # 0.4.1 chỉ thêm Notice.items (không bắt buộc), nên lô 0.4 vẫn đọc được
 
 
 class _Model(BaseModel):
@@ -182,6 +183,10 @@ class Notice(_Model):
     count: int
     change_ids: list[str] = []
     detail: str
+    # 0.4.1 (K2, K3): giá trị riêng để giao diện điền chỗ trống, không lặp. Chỉ ngày, tháng, tiêu đề cột, không bao giờ
+    # giá trị ô. SOURCE_MISSING_DAYS: ngày ISO; SOURCE_WRONG_MONTH: tháng "YYYY-MM"; PHI_COLUMN_SKIPPED,
+    # PERSON_COLUMN_LEFT_BLANK: tên cột. Mã khác để trống. `detail` vẫn là câu đầy đủ, dùng khi gặp mã lạ.
+    items: list[str] = []
 
 
 class LlmCall(_Model):
@@ -196,7 +201,7 @@ class LlmCall(_Model):
 
 
 class ProposalBatch(_Model):
-    schema_version: Literal["0.4"] = SCHEMA_VERSION
+    schema_version: Literal["0.4", "0.4.1"] = SCHEMA_VERSION
     rule_version: str
     proposal_id: str
     created_at: str

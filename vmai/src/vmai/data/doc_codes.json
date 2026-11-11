@@ -137,7 +137,7 @@
   "PDF_TEXT_LAYER_UNTRUSTED": "Chữ trong PDF có thể khác thứ nhìn thấy trên trang, app không đọc tự động. Câu cụ thể có trong lỗi.",
   "PERSON_COLUMN_LEFT_BLANK": "Thông tin về con người để anh/chị tự viết, AI không điền: {cột}.",
   "PERSON_VALUE_BLOCKED": "Có ô trông giống tên người nên không điền.",
-  "PHI_COLUMN_SKIPPED": "Có cột giống thông tin người bệnh: {cột}. App không dùng các cột này và không gửi ra ngoài.",
+  "PHI_COLUMN_SKIPPED": "File nguồn có cột giống thông tin người bệnh: {cột}. App không dùng các cột này.",
   "PROFILE_INVALIDATED": "Biểu mẫu hoặc file nguồn đã đổi cột hoặc tiêu đề, nên cách ghép đã lưu không dùng được nữa. Lần này phải xác nhận lại.",
   "PROFILE_UNCONFIRMED": "Cách ghép này chưa có người xác nhận nên chưa dùng.",
   "READ_FORMULA_NO_CACHED_VALUE": "Ô nguồn là công thức nhưng chưa có kết quả.",
@@ -295,9 +295,16 @@
  "actions_lat1": {
   "MAP_COLUMN_INFERRED": "So số với file nguồn rồi Nhận hoặc Bỏ từng dòng.",
   "MAP_TEST_UNKNOWN": "Mở file nguồn xem các tên này là xét nghiệm nào, rồi anh/chị tự gõ số các ô đó vào biểu mẫu sau khi ghi các dòng khác.",
-  "MISSING_FIELDS": "Mở file nguồn xem có cột {tên cột} không. Nếu có mà tên khác, anh/chị tự gõ số vào biểu mẫu sau khi ghi các dòng khác."
+  "MISSING_FIELDS": "Mở file nguồn xem có cột {tên cột} không. Nếu có mà tên khác, anh/chị tự gõ số vào biểu mẫu sau khi ghi các dòng khác.",
+  "PERSON_COLUMN_LEFT_BLANK": "",
+  "PHI_COLUMN_SKIPPED": "Kiểm tra file có nên dùng không.",
+  "SOURCE_MISSING_DAYS": "Bổ sung nếu có.",
+  "SOURCE_WRONG_MONTH": "Kiểm tra đã chọn đúng file của tháng ghi trên biểu mẫu chưa."
  },
  "texts_lat1": {
-  "MAP_TEST_UNKNOWN": "File nguồn có tên xét nghiệm app chưa biết: {tên}. App chưa điền các ô của tên này. Biểu mẫu không bị đổi."
+  "MAP_TEST_UNKNOWN": "File nguồn có tên xét nghiệm app chưa biết: {tên}. App chưa điền các ô của tên này. Biểu mẫu không bị đổi.",
+  "PERSON_COLUMN_LEFT_BLANK": "Cột {cột} để anh/chị tự viết, AI không điền.",
+  "PHI_COLUMN_SKIPPED": "File nguồn có cột giống thông tin người bệnh: {cột}. App không dùng các cột này.",
+  "SOURCE_WRONG_MONTH": "File nguồn có {n} dòng thuộc tháng {tháng nguồn}, không thuộc tháng của biểu mẫu nên app chưa điền."
  }
 }

@@ -43,7 +43,9 @@ def user_message(code: str, values: dict[str, str] | None = None, *, lat1: bool 
     if code not in texts["reason_texts"]:
         code = "FILL_FAILED"
     sentence = (texts.get("texts_lat1", {}).get(code) if lat1 else None) or texts["reason_texts"][code]
-    action = (texts.get("actions_lat1", {}).get(code) if lat1 else None) or texts["actions"].get(code, "")
+    lat1_actions = texts.get("actions_lat1", {})
+    # Có dòng ở bảng lát 1 mà ô "Làm gì" trống thì không có câu làm gì (N3), giống giao diện dùng `??`.
+    action = lat1_actions[code] if lat1 and code in lat1_actions else texts["actions"].get(code, "")
 
     def fill(text: str) -> str:
         for key, value in (values or {}).items():
