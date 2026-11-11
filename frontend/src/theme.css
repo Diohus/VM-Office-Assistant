@@ -57,6 +57,32 @@ body { font-family: "Segoe UI", Arial, sans-serif; font-size: 14px; color: var(-
 .versions ul { margin: 0; padding: 0; list-style: none; }
 .versions li { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .versions li.current .v-title { color: var(--navy-2); }
+
+/* Lát 1: khung duyệt Điền từ file (Q133). */
+.fill-panel { width: 420px; flex: none; border-left: 1px solid var(--border); overflow: auto; padding: 8px 12px 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.fill-head { display: flex; align-items: center; justify-content: space-between; }
+.fill-panel h2 { font-size: 16px; margin: 4px 0; color: var(--navy); }
+.fill-panel h3 { font-size: 14px; margin: 6px 0 4px; color: var(--navy); }
+.fill-header { margin: 0; padding: 6px 8px; background: #fdf3e0; border-radius: 4px; }
+.fill-counts, .fill-source { margin: 0; }
+.fill-notices, .fill-mapping ul, .fill-overwrites ul, .fill-reasons { margin: 0; padding-left: 18px; }
+.fill-rows { outline: none; border: 1px solid var(--border); border-radius: 4px; }
+.fill-rows:focus { box-shadow: 0 0 0 2px var(--gold-line); }
+.fill-row { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.fill-row.sel { background: #eef3fb; }
+.fill-row-head { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+.fill-row-head b { flex: 1; }
+.fill-cell { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; padding: 4px 0 4px 8px; border-left: 4px solid #e0b84a; }
+.fill-cell.red { border-left-color: #c0392b; }
+.fill-red, .fill-typed { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.fill-red .text-input { width: 90px; }
+.btn-line.on { background: var(--navy); color: #fff; }
+.fill-problem { color: #a32a1d; width: 100%; }
+.fill-old-new { font-weight: 600; margin: 0 6px; }
+.fill-foot { position: sticky; bottom: 0; background: #fff; padding: 6px 0 8px; border-top: 1px solid var(--border); }
+.fill-note { font-size: 12px; margin-top: 4px; }
+.fill-drop { margin-top: 6px; font-size: 13px; }
+.fill-warning { font-weight: 600; color: #a32a1d; }
 .v-title { font-weight: 600; }
 .v-meta { color: var(--text-muted); font-size: 13px; }
 .dialog-back { position: fixed; inset: 0; background: rgba(11, 37, 69, .4); display: flex; align-items: center; justify-content: center; z-index: 2000; padding: 16px; }

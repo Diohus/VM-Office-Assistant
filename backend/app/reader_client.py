@@ -91,6 +91,45 @@ def values(data: bytes) -> list[dict]:
             path.unlink(missing_ok=True)
 
 
+# Lô lát 1 tối đa 5 MB (vmai kiểm); thêm khoảng dư cho phần bọc kết quả.
+MAX_FILL_OUTPUT_BYTES = 6 * 1024 * 1024
+
+
+class FillRejected(Exception):
+    """vmai từ chối tạo lô (FillError) hoặc tiến trình con không xong. Câu `message` do vmai hoặc reader soạn."""
+
+    def __init__(self, code: str, message: str, detail: dict):
+        super().__init__(code)
+        self.code, self.message, self.detail = code, message, detail
+
+
+def fill(template: bytes, template_name: str, source: bytes, source_name: str, spec_id: str) -> dict:
+    """Tạo lô đề xuất trong reader (không mạng, không key): biểu mẫu ở <id>.xlsx, nguồn ở <id>.src.xlsx. Trả lô dạng dict."""
+    job_id = uuid.uuid4().hex
+    tpl, src, job, out = (SPOOL_DIR / f"{job_id}{s}" for s in (".xlsx", ".src.xlsx", ".job", ".out.json"))
+    _write_atomic(tpl, template)
+    _write_atomic(src, source)
+    _write_atomic(job, json.dumps({"kind": "fill", "filename": template_name, "source_name": source_name, "spec_id": spec_id}, ensure_ascii=False).encode("utf8"))
+    deadline = time.monotonic() + READER_TIMEOUT_SECONDS
+    try:
+        while not out.exists():
+            if time.monotonic() > deadline:
+                raise ReaderUnavailable
+            time.sleep(POLL_SECONDS)
+        if out.stat().st_size > MAX_FILL_OUTPUT_BYTES:
+            raise ReaderUnavailable
+        raw = json.loads(out.read_text(encoding="utf8"))
+        if raw.get("ok") is True and isinstance(raw.get("batch"), dict):
+            return raw["batch"]
+        rejected = _Rejected.model_validate(raw)
+        raise FillRejected(rejected.code, rejected.message, rejected.detail)
+    except (ValidationError, ValueError) as exc:
+        raise ReaderUnavailable from exc
+    finally:
+        for path in (tpl, src, job, out):
+            path.unlink(missing_ok=True)
+
+
 def read(data: bytes, filename: str) -> dict:
     return _run(data, {"kind": "read", "filename": filename})[0]
 

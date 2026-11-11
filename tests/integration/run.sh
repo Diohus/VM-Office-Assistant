@@ -11,5 +11,5 @@ mkdir -p tests/integration/out
 sh tools/dev/up.sh > tests/integration/out/up.log 2>&1 || { echo "Không bật được app:"; tail -25 tests/integration/out/up.log; exit 1; }
 PYTHONIOENCODING=utf8 PYTHONPATH="workers/reader${SEP}vmai/src" "$PY" -m pytest workers/reader/tests -q -W ignore -p no:cacheprovider
 [ -d tests/integration/browser/node_modules ] || (cd tests/integration/browser && npm ci --ignore-scripts --no-audit --no-fund > /dev/null)
-(cd tests/integration/browser && node --test typed_number.test.mjs > /dev/null)
+(cd tests/integration/browser && node --test typed_number.test.mjs fill_model.test.mjs > /dev/null)
 PYTHONIOENCODING=utf8 PYTHONDONTWRITEBYTECODE=1 "$PY" -m pytest tests/integration -q -W ignore -p no:cacheprovider "$@"

@@ -25,6 +25,8 @@ export class ApiError extends Error {
 async function call(path, options = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  // Người dùng bấm Hủy (lát 1, 6.1): dừng yêu cầu đang chờ.
+  options.signal?.addEventListener('abort', () => ctrl.abort());
   let res;
   try {
     res = await fetch(path, { ...options, signal: ctrl.signal });
@@ -52,6 +54,38 @@ export async function uploadDocument(file) {
     body: file,
   });
   return res.json();
+}
+
+// ---- Lát 1 nối AI (Q133). Trình duyệt không bao giờ gửi số đề xuất lên: chỉ gửi change_id và lựa chọn. ----
+export async function uploadSource(documentId, file, signal) {
+  const res = await call(`/api/documents/${documentId}/sources?filename=${encodeURIComponent(file.name)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file, signal,
+  });
+  return res.json();
+}
+
+export function createFill(documentId, body, signal) {
+  return call(`/api/documents/${documentId}/fill`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal }).then((r) => r.json());
+}
+
+export function openFill(batchId) {
+  return postJson(`/api/fill/${batchId}/open`, {});
+}
+
+export async function cancelFill(batchId) {
+  return (await call(`/api/fill/${batchId}`, { method: 'DELETE' })).json();
+}
+
+export async function fetchFill(batchId) {
+  return (await call(`/api/fill/${batchId}`)).json();
+}
+
+export async function fetchOpenFills(documentId) {
+  return (await call(`/api/documents/${documentId}/fill`)).json();
+}
+
+export function applyFill(batchId, body) {
+  return postJson(`/api/fill/${batchId}/apply`, body);
 }
 
 export async function fetchGrid(documentId, version = null) {

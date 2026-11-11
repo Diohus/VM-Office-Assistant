@@ -44,6 +44,32 @@ MIGRATIONS = [
         FOREIGN KEY (document_id, version) REFERENCES document_version(document_id, version)
     );
     """,
+    # Lát 1 nối AI (Q133). File nguồn chỉ lưu SHA và tên, nội dung nằm trong kho; không lưu lưới đã đọc của nguồn.
+    # Lô: draft (vừa tạo, chưa mở, không tính D10), open (đang duyệt hoặc còn ô chờ), done. `targets`: change_id -> "sheet!A1".
+    # `decisions`: change_id -> {state: pending|rejected|written|blank, how, version}.
+    """
+    CREATE TABLE source_file (
+        source_id uuid PRIMARY KEY,
+        document_id uuid NOT NULL REFERENCES document(document_id),
+        name text NOT NULL,
+        sha256 char(64) NOT NULL,
+        size bigint NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE fill_batch (
+        batch_id uuid PRIMARY KEY,
+        document_id uuid NOT NULL REFERENCES document(document_id),
+        source_id uuid NOT NULL REFERENCES source_file(source_id),
+        base_version integer NOT NULL,
+        status text NOT NULL CHECK (status IN ('draft', 'open', 'done')),
+        batch jsonb NOT NULL,
+        targets jsonb NOT NULL,
+        decisions jsonb NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        opened_at timestamptz
+    );
+    CREATE INDEX fill_batch_document ON fill_batch (document_id, status);
+    """,
 ]
 
 
@@ -140,3 +166,160 @@ def recent(limit: int = 20) -> list[dict]:
             """,
             (limit,),
         ).fetchall()
+
+
+class BatchChanged(Exception):
+    """Quyết định của lô đã đổi ở chỗ khác (tab khác) từ lúc đọc tới lúc ghi."""
+
+
+class FillConflict(Exception):
+    """Ô của lô này đang chờ trong một lô khác đang mở của cùng tài liệu (D10)."""
+
+    def __init__(self, cells: list[str]):
+        super().__init__("conflict")
+        self.cells = cells
+
+
+def add_source(document_id: uuid.UUID, name: str, sha: str, size: int) -> dict:
+    source_id = uuid.uuid4()
+    with _connect() as conn:
+        conn.execute("INSERT INTO source_file (source_id, document_id, name, sha256, size) VALUES (%s, %s, %s, %s, %s)",
+                     (source_id, document_id, name, sha, size))
+    return {"source_id": str(source_id), "name": name}
+
+
+def source(document_id: uuid.UUID, source_id: uuid.UUID) -> dict | None:
+    with _connect() as conn:
+        return conn.execute("SELECT source_id, name, sha256 FROM source_file WHERE document_id = %s AND source_id = %s",
+                            (document_id, source_id)).fetchone()
+
+
+def _pending_cells(conn, document_id: uuid.UUID, exclude: uuid.UUID | None) -> dict[str, str]:
+    """Ô đang chờ của mọi lô đang mở trên tài liệu: "sheet!A1" -> batch_id."""
+    rows = conn.execute("SELECT batch_id, targets, decisions FROM fill_batch WHERE document_id = %s AND status = 'open' AND batch_id <> %s",
+                        (document_id, exclude or uuid.UUID(int=0))).fetchall()
+    out = {}
+    for row in rows:
+        for change_id, target in row["targets"].items():
+            if row["decisions"].get(change_id, {}).get("state") == "pending":
+                out[target] = str(row["batch_id"])
+    return out
+
+
+def create_batch(document_id: uuid.UUID, source_id: uuid.UUID, base_version: int, batch: dict, targets: dict, decisions: dict) -> uuid.UUID:
+    """Lưu lô `draft`. Lô `draft` khác của tài liệu bị xóa: lô bỏ dở không nằm lại (acceptance_lat1 6.1)."""
+    batch_id = uuid.uuid4()
+    with _connect() as conn:
+        conn.execute("SELECT 1 FROM document WHERE document_id = %s FOR UPDATE", (document_id,))
+        conn.execute("DELETE FROM fill_batch WHERE document_id = %s AND status = 'draft'", (document_id,))
+        conn.execute("INSERT INTO fill_batch (batch_id, document_id, source_id, base_version, status, batch, targets, decisions) "
+                     "VALUES (%s, %s, %s, %s, 'draft', %s, %s, %s)",
+                     (batch_id, document_id, source_id, base_version, json.dumps(batch, ensure_ascii=False),
+                      json.dumps(targets, ensure_ascii=False), json.dumps(decisions)))
+    return batch_id
+
+
+def batch(batch_id: uuid.UUID) -> dict | None:
+    with _connect() as conn:
+        return conn.execute("SELECT b.*, s.name AS source_name FROM fill_batch b JOIN source_file s USING (source_id) WHERE b.batch_id = %s",
+                            (batch_id,)).fetchone()
+
+
+def open_batches(document_id: uuid.UUID) -> list[dict]:
+    with _connect() as conn:
+        return conn.execute("SELECT b.batch_id, b.created_at, s.name AS source_name FROM fill_batch b JOIN source_file s USING (source_id) "
+                            "WHERE b.document_id = %s AND b.status = 'open' ORDER BY b.created_at", (document_id,)).fetchall()
+
+
+def drop_batch(batch_id: uuid.UUID) -> dict:
+    """Bỏ lần điền (N5). Lô nháp thì xóa hẳn. Lô đang mở: ô còn chờ thành `dropped`, lô xong; ô đã ghi giữ nguyên.
+
+    Khóa dòng tài liệu như apply_batch: không đua với một lần Ghi đang chạy.
+    """
+    with _connect() as conn:
+        row = conn.execute("SELECT document_id FROM fill_batch WHERE batch_id = %s", (batch_id,)).fetchone()
+        if row is None:
+            return {"deleted": False, "dropped": 0}
+        conn.execute("SELECT 1 FROM document WHERE document_id = %s FOR UPDATE", (row["document_id"],))
+        row = conn.execute("SELECT status, decisions FROM fill_batch WHERE batch_id = %s FOR UPDATE", (batch_id,)).fetchone()
+        if row is None:
+            return {"deleted": False, "dropped": 0}
+        if row["status"] == "draft":
+            conn.execute("DELETE FROM fill_batch WHERE batch_id = %s", (batch_id,))
+            return {"deleted": True, "dropped": 0}
+        if row["status"] != "open":
+            return {"deleted": False, "dropped": 0}
+        decisions = dict(row["decisions"])
+        dropped = 0
+        for cid, d in decisions.items():
+            if d.get("state") == "pending":
+                decisions[cid] = {"state": "dropped"}
+                dropped += 1
+        conn.execute("UPDATE fill_batch SET decisions = %s, status = 'done' WHERE batch_id = %s", (json.dumps(decisions), batch_id))
+        return {"deleted": False, "dropped": dropped}
+
+
+def open_batch(batch_id: uuid.UUID) -> None:
+    """`draft` thành `open`. D10 kiểm trong cùng giao dịch, có khóa dòng tài liệu: hai tab cùng lúc chỉ một lô được mở."""
+    with _connect() as conn:
+        row = conn.execute("SELECT document_id FROM fill_batch WHERE batch_id = %s", (batch_id,)).fetchone()
+        if row is None:
+            raise LookupError(batch_id)
+        conn.execute("SELECT 1 FROM document WHERE document_id = %s FOR UPDATE", (row["document_id"],))
+        row = conn.execute("SELECT document_id, status, targets FROM fill_batch WHERE batch_id = %s", (batch_id,)).fetchone()
+        if row is None:
+            raise LookupError(batch_id)
+        if row["status"] != "draft":
+            return
+        if not row["targets"]:  # lô 0 ô: không có gì để duyệt, kết thúc ngay, không báo "còn ô chờ" (N8)
+            conn.execute("UPDATE fill_batch SET status = 'done', opened_at = now() WHERE batch_id = %s", (batch_id,))
+            return
+        busy = _pending_cells(conn, row["document_id"], batch_id)
+        clash = sorted({t for t in row["targets"].values() if t in busy})
+        if clash:
+            raise FillConflict(clash)
+        conn.execute("UPDATE fill_batch SET status = 'open', opened_at = now() WHERE batch_id = %s", (batch_id,))
+
+
+def apply_batch(batch_id: uuid.UUID, document_id: uuid.UUID, base_version: int, decisions: dict, write: dict | None, expected: dict) -> dict | None:
+    """Lưu quyết định, và nếu có ô để ghi thì thêm bản mới, trong một giao dịch có khóa dòng tài liệu.
+
+    `write`: {sha, size, meta, author, summary, edits} hoặc None. Kiểm lại bản mới nhất và D10 ngay trong giao dịch:
+    có lô khác vừa ghi hay vừa giữ ô của lô này thì không ghi gì (StaleVersion, FillConflict).
+    `expected`: quyết định đã dùng để tính. Trong giao dịch, quyết định đang lưu khác bản đó (một lần áp khác vừa xong)
+    thì không ghi gì (BatchChanged): không đè mất quyết định của lần kia.
+    """
+    with _connect() as conn:
+        conn.execute("SELECT 1 FROM document WHERE document_id = %s FOR UPDATE", (document_id,))
+        row = conn.execute("SELECT status, targets, decisions FROM fill_batch WHERE batch_id = %s FOR UPDATE", (batch_id,)).fetchone()
+        if row is None or row["status"] != "open":
+            raise LookupError(batch_id)
+        if row["decisions"] != expected:
+            raise BatchChanged
+        latest_n = conn.execute("SELECT max(version) AS n FROM document_version WHERE document_id = %s", (document_id,)).fetchone()["n"]
+        if latest_n != base_version:
+            raise StaleVersion
+        busy = _pending_cells(conn, document_id, batch_id)
+        clash = sorted({row["targets"][cid] for cid, d in decisions.items()
+                        if d.get("state") == "written" and d.get("version") is None and row["targets"].get(cid) in busy})
+        if clash:
+            raise FillConflict(clash)
+        version_row = None
+        if write is not None:
+            version = latest_n + 1
+            try:
+                conn.execute("INSERT INTO document_version (document_id, version, sha256, size, meta, author, summary) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                             (document_id, version, write["sha"], write["size"], json.dumps(write["meta"], ensure_ascii=False), write["author"], write["summary"]))
+            except psycopg.errors.UniqueViolation as exc:
+                # Lưới an toàn: khóa dòng tài liệu ở trên làm việc này không xảy ra. Nếu có, đó là bản lệch, không phải lỗi 500.
+                raise StaleVersion from exc
+            for e in write["edits"]:
+                conn.execute("INSERT INTO cell_edit (document_id, version, sheet, cell, value, formula, author) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                             (document_id, version, e["sheet"], e["cell"], json.dumps(e.get("value")), None, write["author"]))
+            for d in decisions.values():
+                if d.get("state") == "written" and d.get("version") is None:
+                    d["version"] = version
+            version_row = conn.execute(_SELECT + " WHERE d.document_id = %s AND v.version = %s", (document_id, version)).fetchone()
+        status = "open" if any(d.get("state") == "pending" for d in decisions.values()) else "done"
+        conn.execute("UPDATE fill_batch SET decisions = %s, status = %s WHERE batch_id = %s", (json.dumps(decisions), status, batch_id))
+        return version_row

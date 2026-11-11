@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError, editsTooMany, MAX_EDITS, exportPdf, exportUrl, fetchDocument, fetchGrid, fetchRecent, fetchVersions, restoreVersion, saveVersion, uploadDocument } from './api.js';
+import { ApiError, applyFill, cancelFill, createFill, editsTooMany, MAX_EDITS, exportPdf, exportUrl, fetchDocument, fetchFill, fetchGrid, fetchOpenFills, fetchRecent, fetchVersions, openFill, restoreVersion, saveVersion, uploadDocument, uploadSource } from './api.js';
+import texts from '@vmai-texts';
+import FillPanel from './fill/FillPanel.jsx';
+import { toDecisions } from './fill/fillModel.js';
 import { createGrid } from './grid/index.js';
 import { ambiguousNumberNotice, decimalSwappedNotice, documentNotices, hiddenDigitsNotice, EXPORT_UNCHANGED, EXPORT_UNCHANGED_LEGACY, EXPORT_WARNING, lockedCellNotice, mismatchNotice, pastedNotice, pdfMismatchNotice, refusedNotice, SAVE_FAILED_NOTE, savedNotice } from './notices.js';
 
@@ -29,6 +32,11 @@ function Icon({ d }) {
 // Nút trên thông báo không lấy bàn phím khi bấm chuột: bấm Đóng hay Xem vị trí rồi gõ tiếp thì phím vẫn vào lưới (Q125).
 // Trước đây bàn phím rơi ra ngoài trang, phím gõ ngay sau đó bị mất.
 const keepFocus = (e) => e.preventDefault();
+
+// Lát 1 nối AI (Q133). Câu nhắc file giả: nguyên văn PO/BA (acceptance_lat1 1.5).
+const FILL_FAKE_ONLY = 'Bản thử này chỉ dùng với file giả đội gửi kèm. Anh/chị đừng chọn file kết quả thật của khoa.';
+const FILL_WRONG_DOC = 'Lần điền này thuộc một biểu mẫu khác với biểu mẫu đang mở nên app chưa ghi. Không biểu mẫu nào bị đổi. Hãy mở lại đúng biểu mẫu rồi Ghi.';
+const FILL_ONLY_QC = 'Bản thử này chỉ điền được biểu mẫu QC mẫu (GIA-QC-01_mau.xlsx). Biểu mẫu của anh/chị không bị đổi. Hãy mở biểu mẫu QC mẫu đội gửi kèm rồi bấm Điền từ file.';
 
 const CALCULATING_TEXT = 'Đang tính lại các ô công thức, số trong các ô đó có thể chưa mới...';
 const CALC_TIMEOUT_TEXT = 'App chưa tính xong các ô công thức nên chưa xuất PDF, để PDF không có số cũ. Biểu mẫu của anh/chị không bị đổi. Hãy chờ dòng "Đang tính lại" biến mất rồi bấm Tải PDF lại.';
@@ -95,6 +103,11 @@ export default function App() {
   const [nameDraft, setNameDraft] = useState('');
   const [dirty, setDirty] = useState(false);
   const [recent, setRecent] = useState([]);
+  // Lát 1: lô đang duyệt, ô cần duyệt lại (3.8a), lệnh hủy lúc đang tạo lô (6.1).
+  const [fill, setFill] = useState(null);
+  const [reviewAgain, setReviewAgain] = useState({});
+  const fillInputRef = useRef(null);
+  const fillAbort = useRef(null);
   const inputRef = useRef(null);
   const hostRef = useRef(null);
   const gridRef = useRef(null);
@@ -152,6 +165,11 @@ export default function App() {
     const sheetBefore = gridRef.current && docRef.current?.document_id === meta.document_id ? gridRef.current.activeSheet() : null;
     gridRef.current?.destroy();
     gridRef.current = null;
+    // Mở tài liệu khác: khung Điền từ file của tài liệu cũ đóng lại; lô cũ vẫn chờ, mở lại tài liệu đó thì có câu nhắc (PO/BA 11/11).
+    if (docRef.current?.document_id !== meta.document_id) {
+      setFill(null);
+      setReviewAgain({});
+    }
     setDoc(meta);
     setViewing(oldVersion);
     setClosed(new Set());
@@ -191,6 +209,13 @@ export default function App() {
     if (gridRef.current !== grid) return;
     const note = mismatchNotice(mismatches);
     if (note) setNotices((list) => [...list, note]);
+    if (oldVersion === null) {
+      fetchOpenFills(meta.document_id).then((open) => {
+        if (!open.length || gridRef.current !== grid) return;
+        const first = open[0];
+        pushNotice({ id: 'fill-open', kind: 'info', text: `Còn một lần điền từ file ${first.source_name} chưa xong: có ô đang chờ duyệt.`, places: [{ label: 'Mở lại lần điền này', fillId: first.batch_id }] });
+      }).catch(() => {});
+    }
     window.vmGridReady = `${meta.document_id}:${meta.version}:${oldVersion ?? ''}`;
   }, [pushNotice]);
 
@@ -284,7 +309,90 @@ export default function App() {
   const viewOld = (n) => guard(() => run(() => showGrid(docRef.current, { oldVersion: n })));
   const backToLatest = () => run(() => showGrid(doc));
   const restore = (n) => setDialog({ kind: 'restore', version: n });
-  const go = (place) => gridRef.current?.goTo(place.sheet, place.cell);
+  const reopenFill = (batchId) => run(async () => {
+    const b = await fetchFill(batchId);
+    setReviewAgain({});
+    setVersions(null);
+    setFill(b);
+    setNotices((list) => list.filter((n) => n.id !== 'fill-open'));
+  });
+  const go = (place) => (place.fillId ? reopenFill(place.fillId) : gridRef.current?.goTo(place.sheet, place.cell));
+  // Nút Điền từ file: chỉ biểu mẫu QC mẫu (báo trước, không gọi API); có sửa chưa lưu thì hỏi trước (6.3).
+  const onFill = () => {
+    if (!docRef.current?.fill_supported) {
+      setError(FILL_ONLY_QC);
+      return;
+    }
+    guard(() => fillInputRef.current?.click());
+  };
+  const onFillChosen = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) setDialog({ kind: 'fill-confirm', file });
+  };
+  const startFill = (file) => {
+    const ctrl = new AbortController();
+    fillAbort.current = ctrl;
+    setDialog({ kind: 'fill-wait' });
+    let batchId = null;
+    run(async () => {
+      try {
+        const meta = docRef.current;
+        const src = await uploadSource(meta.document_id, file, ctrl.signal);
+        if (ctrl.signal.aborted) return;
+        const created = await createFill(meta.document_id, { source_id: src.source_id, base_version: meta.version }, ctrl.signal);
+        batchId = created.batch_id;
+        if (ctrl.signal.aborted) {
+          await cancelFill(batchId).catch(() => {});
+          return;
+        }
+        const opened = await openFill(batchId);
+        setReviewAgain({});
+        setVersions(null);
+        setFill(opened);
+      } catch (err) {
+        // Người dùng đã bấm Hủy: không báo lỗi mạng, xóa lô nháp nếu đã có (6.1).
+        if (ctrl.signal.aborted) {
+          if (batchId) await cancelFill(batchId).catch(() => {});
+          return;
+        }
+        throw err;
+      } finally {
+        fillAbort.current = null;
+        setDialog((d) => (d?.kind === 'fill-wait' ? null : d));
+      }
+    });
+  };
+  // Ghi: có sửa chưa lưu thì hỏi trước (6.3). Chỉ gửi change_id và lựa chọn; số lấy từ lô ở máy chủ (4.6).
+  const applyChoices = (choices) => guard(() => askName((author) => run(async () => {
+    const current = fill;
+    // Lô phải thuộc tài liệu đang hiện; máy chủ kiểm lại bằng document_id (FILL_WRONG_DOCUMENT).
+    if (current.document_id !== docRef.current.document_id) {
+      setFill(null);
+      throw new ApiError(FILL_WRONG_DOC, 'FILL_WRONG_DOCUMENT');
+    }
+    const r = await applyFill(current.batch_id, { document_id: docRef.current.document_id, base_version: docRef.current.version, author, decisions: toDecisions(choices) });
+    const again = r.review_again ?? {};
+    const keep = [];
+    const left = r.pending;
+    if (r.version) keep.push({ id: 'fill-done', kind: 'info', text: `Đã ghi ${r.written} ô từ file ${current.source_name} thành bản ${r.version.version}, còn ${left} ô chưa ghi.`, places: [] });
+    if (Object.keys(again).length) keep.push({ id: 'fill-again', kind: 'warn', text: `${Object.keys(again).length} ô đã bị đổi ở chỗ khác từ lúc tạo đề xuất nên app chưa ghi. Hãy xem số hiện tại → số mới trong khung Điền từ file rồi Nhận lại nếu vẫn muốn ghi.`, places: [] });
+    if (r.version) await showGrid(r.version, { keep });
+    else keep.forEach(pushNotice);
+    setReviewAgain(again);
+    const b = await fetchFill(current.batch_id);
+    setFill(b.status === 'done' ? null : b);
+  })));
+
+  // N5: bỏ lần điền đang mở. Không tạo bản mới; các ô đã ghi giữ nguyên; ô của lô không còn bị giữ (D10).
+  const dropFill = () => run(async () => {
+    const current = fill;
+    const r = await cancelFill(current.batch_id);
+    setFill(null);
+    setReviewAgain({});
+    setNotices((list) => list.filter((n) => n.id !== 'fill-open' && n.id !== 'fill-again'));
+    pushNotice({ id: 'fill-dropped', kind: 'info', text: `Đã bỏ lần điền từ file ${current.source_name}: ${r.dropped ?? 0} ô không ghi. Biểu mẫu không bị đổi.`, places: [] });
+  });
 
   const visible = notices.filter((n) => !closed.has(n.id));
   const hiddenCount = notices.length - visible.length;
@@ -319,6 +427,11 @@ export default function App() {
               <Icon d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14" />Xuất
             </button>
           )}
+          {canEdit && (
+            <button type="button" className="side-btn" onClick={onFill} disabled={busy} data-testid="fill-button">
+              <Icon d="M4 5h7v14H4zM13 12h7M17 8l4 4-4 4" />Điền từ file
+            </button>
+          )}
           {doc && (
             <button type="button" className="side-btn" onClick={onVersions}>
               <Icon d="M12 7v5l3 2M4 12a8 8 0 1 0 2.5-5.8M4 4v4h4" />Phiên bản
@@ -327,6 +440,7 @@ export default function App() {
         </nav>
         <main className="main">
           <input ref={inputRef} type="file" accept={ACCEPT} hidden onChange={onChosen} data-testid="file-input" />
+          <input ref={fillInputRef} type="file" accept=".xlsx" hidden onChange={onFillChosen} data-testid="fill-input" />
           {error && (
             <div className="notices">
               <NoticeBar notice={{ id: 'open-error', kind: 'error', text: error }} onClose={() => setError(null)} onGo={go} />
@@ -380,7 +494,12 @@ export default function App() {
             </div>
           )}
         </main>
-        {versions && doc && (
+        {fill && doc && viewing === null && (
+          <FillPanel fill={fill} texts={texts} busy={busy} reviewAgain={reviewAgain} onApply={applyChoices}
+            onClose={() => setFill(null)} onGo={(a1) => gridRef.current?.goTo(fill.batch.changes[0]?.target.sheet, a1)}
+            onDrop={(pending) => setDialog({ kind: 'fill-drop', pending })} />
+        )}
+        {versions && doc && !fill && (
           <aside className="versions" aria-label="Phiên bản" data-testid="versions">
             <h2>Phiên bản</h2>
             <ul>
@@ -430,6 +549,36 @@ export default function App() {
           <label>App ghi tên này vào lịch sử để biết ai đã sửa. Tên anh/chị tự gõ, bản thử nghiệm chưa kiểm tra đăng nhập.
             <input className="text-input" value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} autoFocus data-testid="name-input" maxLength={120} />
           </label>
+        </Dialog>
+      )}
+      {dialog?.kind === 'fill-confirm' && (
+        <Dialog
+          title="Điền từ file"
+          actions={[
+            { label: 'Điền', primary: true, onClick: () => startFill(dialog.file) },
+            { label: 'Hủy', onClick: () => setDialog(null) },
+          ]}
+        >
+          <p>Điền biểu mẫu <b>{doc?.name}</b> bằng số từ file <b>{dialog.file.name}</b>?</p>
+          <p>App chỉ đề xuất, chưa ghi gì vào biểu mẫu. Anh/chị duyệt từng dòng rồi mới Ghi.</p>
+          <p className="fill-warning">{FILL_FAKE_ONLY}</p>
+        </Dialog>
+      )}
+      {dialog?.kind === 'fill-drop' && (
+        <Dialog
+          title="Bỏ lần điền này"
+          actions={[
+            { label: 'Bỏ lần điền', primary: true, onClick: () => { setDialog(null); dropFill(); } },
+            { label: 'Hủy', onClick: () => setDialog(null) },
+          ]}
+        >
+          <p>Bỏ lần điền từ file <b>{fill?.source_name}</b>? {dialog.pending} ô còn chờ sẽ bị bỏ, app không ghi các ô này.</p>
+          <p>Các ô đã ghi trước đó vẫn giữ trong các bản đã lưu. Muốn điền lại thì bấm Điền từ file.</p>
+        </Dialog>
+      )}
+      {dialog?.kind === 'fill-wait' && (
+        <Dialog title="Đang tạo đề xuất" actions={[{ label: 'Hủy', onClick: () => { fillAbort.current?.abort(); setDialog(null); } }]}>
+          Đang tạo đề xuất từ file nguồn. Biểu mẫu chưa bị đổi.
         </Dialog>
       )}
       {dialog?.kind === 'export' && (

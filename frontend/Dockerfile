@@ -4,6 +4,8 @@ WORKDIR /src
 COPY frontend/package.json frontend/package-lock.json ./
 RUN --mount=type=secret,id=machine_ca sh -c 'NODE_EXTRA_CA_CERTS=/run/secrets/machine_ca npm ci --ignore-scripts --no-audit --no-fund'
 COPY frontend/ ./
+# Câu chữ của vmai cho màn duyệt lát 1: đặt ở ../vmai như trong repo, để alias @vmai-texts trỏ đúng.
+COPY vmai/src/vmai/data/doc_codes.json /vmai/src/vmai/data/doc_codes.json
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6

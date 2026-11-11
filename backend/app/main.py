@@ -15,7 +15,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from . import comparison, converter_client, db, reader_client, store
+from . import comparison, converter_client, db, fill, reader_client, store
 from .config import MAX_UPLOAD_BYTES
 
 MAX_EDITS = 5000
@@ -128,9 +128,15 @@ def _public(row: dict) -> dict:
         "created_at": row["created_at"].isoformat(),
         "author": row["author"],
         "summary": row["summary"],
-        "written": row["sha256"] != _first_sha(row["document_id"]),
+        **_first_flags(row),
         **row["meta"],
     }
+
+
+def _first_flags(row: dict) -> dict:
+    first = _first_sha(row["document_id"])
+    # fill_supported: lát 1 chỉ điền biểu mẫu QC mẫu (Q133, PM 11/11). So SHA bản tải lên đầu tiên.
+    return {"written": row["sha256"] != first, "fill_supported": first == fill.QC_TEMPLATE_SHA256}
 
 
 def _first_sha(document_id: uuid.UUID) -> str:
@@ -297,3 +303,191 @@ def export(document_id: str, version: int | None = None) -> Response:
         "Content-Disposition": f"attachment; filename=\"export.xlsx\"; filename*=UTF-8''{quote(out_name)}",
         "X-Content-SHA256": row["sha256"],
     })
+
+
+
+# ---- Lát 1 nối AI (Q133, T-DEV-09). Không ghi log tên file hay nội dung lô. ----
+_FILL_ONLY_QC = "Bản thử này chỉ điền được biểu mẫu QC mẫu (GIA-QC-01_mau.xlsx). Biểu mẫu của anh/chị không bị đổi. Hãy mở biểu mẫu QC mẫu đội gửi kèm rồi bấm Điền từ file."
+_FILL_SOURCE_XLSX = "Bản thử này chỉ điền từ file Excel .xlsx. File của anh/chị không bị đổi. Hãy mở file nguồn bằng Excel, lưu thành .xlsx rồi chọn lại."
+_FILL_SOURCE_GONE = "Không tìm thấy file nguồn đã chọn. Biểu mẫu của anh/chị không bị đổi. Hãy chọn lại file nguồn."
+_FILL_INVALID = "App không dùng được đề xuất vừa tạo nên chưa hiện gì. Biểu mẫu của anh/chị không bị đổi. Hãy thử lại; nếu vẫn lỗi, báo người quản lý app."
+_FILL_CONFLICT = "Một số ô của biểu mẫu này đang chờ duyệt trong một lần điền khác nên app chưa mở lần điền này. Biểu mẫu của anh/chị không bị đổi. Hãy duyệt xong hoặc bỏ lần điền đang mở, rồi điền lại."
+_FILL_CHANGED = "Lần điền này vừa được cập nhật ở chỗ khác (có thể ở tab khác) nên app chưa ghi. Bản đang lưu không bị đổi. Hãy tải lại trang rồi duyệt tiếp."
+_FILL_WRONG_DOC = "Lần điền này thuộc một biểu mẫu khác với biểu mẫu đang mở nên app chưa ghi. Không biểu mẫu nào bị đổi. Hãy mở lại đúng biểu mẫu rồi Ghi."
+_FILL_GONE = "Lần điền này không còn hoặc đã xong. Biểu mẫu của anh/chị không bị đổi. Hãy bấm Điền từ file để tạo lần mới."
+
+
+class FillRequest(BaseModel):
+    source_id: str = Field(max_length=64)
+    base_version: int
+
+
+class Decision(BaseModel):
+    change_id: str = Field(max_length=64)
+    action: Literal["accept", "reject", "red_accept", "red_choice", "red_typed", "red_blank"]
+    index: int | None = None
+    text: str | None = Field(default=None, max_length=64)
+    seen: str | None = Field(default=None, max_length=64)
+
+
+class ApplyRequest(BaseModel):
+    document_id: str = Field(min_length=1, max_length=64)  # tài liệu đang hiện trên màn hình; phải là tài liệu của lô (PO/BA 11/11)
+    base_version: int
+    author: str = Field(min_length=1, max_length=120)
+    decisions: list[Decision] = Field(min_length=1, max_length=MAX_EDITS)
+
+
+def _fill_supported(key: uuid.UUID) -> bool:
+    return _first_sha(key) == fill.QC_TEMPLATE_SHA256
+
+
+def _batch_key(batch_id: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(batch_id)
+    except ValueError as exc:
+        raise HTTPException(404) from exc
+
+
+def _batch_public(row: dict) -> dict:
+    return {"batch_id": str(row["batch_id"]), "document_id": str(row["document_id"]), "status": row["status"],
+            "source_name": row["source_name"], "base_version": row["base_version"], "batch": row["batch"], "decisions": row["decisions"]}
+
+
+@app.post("/api/documents/{document_id}/sources", status_code=201)
+async def upload_source(document_id: str, request: Request, filename: str):
+    """File nguồn: qua cùng cổng đầu vào như biểu mẫu. Chỉ lưu file và SHA; không trả nội dung, không lưu lưới của nguồn."""
+    key = _key(document_id)
+    if await run_in_threadpool(db.latest, key) is None:
+        raise HTTPException(404)
+    if not await run_in_threadpool(_fill_supported, key):
+        return _problem(422, "FILL_TEMPLATE_UNSUPPORTED", _FILL_ONLY_QC)
+    name = _clean_name(filename)
+    data = await _read_limited(request)
+    if data is None:
+        return _problem(413, "FILE_TOO_LARGE", "File vượt giới hạn 25 MB nên app không mở. File của anh/chị không bị đổi. Hãy tách file hoặc hỏi người quản lý app.", limit="file")
+    if not data:
+        return _problem(422, "FILE_CORRUPT", "File không có nội dung nên app không mở được. File gốc của anh/chị không bị đổi. Hãy kiểm tra lại file rồi chọn lại.")
+    try:
+        result = await run_in_threadpool(reader_client.read, data, name)
+    except reader_client.ReaderUnavailable:
+        return _problem(503, "READER_UNAVAILABLE", _BUSY)
+    if not result["ok"]:
+        if result["code"] == "FILE_LEGACY_XLS":
+            return _problem(422, "FILL_SOURCE_XLSX_ONLY", _FILL_SOURCE_XLSX)
+        status = 413 if result["code"] == "FILE_TOO_LARGE" else 422
+        return _problem(status, result["code"], result["message"], **result.get("detail", {}))
+    sha = hashlib.sha256(data).hexdigest()
+    await run_in_threadpool(store.put_file, sha, data)
+    return await run_in_threadpool(db.add_source, key, name, sha, len(data))
+
+
+@app.post("/api/documents/{document_id}/fill", status_code=201)
+def create_fill(document_id: str, body: FillRequest):
+    """Tạo lô đề xuất (draft) trong reader. Lô chưa mở không tính D10 và bị thay khi tạo lô mới (6.1)."""
+    key = _key(document_id)
+    base = _find(document_id, body.base_version)
+    if not _fill_supported(key):
+        return _problem(422, "FILL_TEMPLATE_UNSUPPORTED", _FILL_ONLY_QC)
+    if db.latest(key)["version"] != body.base_version:
+        return _problem(409, "STALE_VERSION", _STALE)
+    try:
+        src = db.source(key, uuid.UUID(body.source_id))
+    except ValueError:
+        src = None
+    if src is None:
+        return _problem(404, "FILL_SOURCE_GONE", _FILL_SOURCE_GONE)
+    try:
+        batch = reader_client.fill(store.read(base["sha256"]), base["name"], store.read(src["sha256"]), src["name"], fill.SPEC_ID)
+    except reader_client.FillRejected as exc:
+        return _problem(422, exc.code, exc.message)
+    except reader_client.ReaderUnavailable:
+        return _problem(503, "READER_UNAVAILABLE", _BUSY)
+    grid = json.loads(store.read_grid(base["sha256"]))
+    try:
+        targets, decisions = fill.check_batch(batch, grid, base["meta"].get("hidden_sheets", []))
+    except fill.BatchInvalid:
+        return _problem(422, "FILL_INVALID", _FILL_INVALID)
+    batch_id = db.create_batch(key, src["source_id"], body.base_version, batch, targets, decisions)
+    return _batch_public(db.batch(batch_id))
+
+
+@app.post("/api/fill/{batch_id}/open")
+def open_fill(batch_id: str):
+    """Mở lô để duyệt. D10: ô đang chờ ở lô khác đang mở thì từ chối, kể cả hai tab cùng lúc."""
+    key = _batch_key(batch_id)
+    try:
+        db.open_batch(key)
+    except LookupError:
+        return _problem(404, "FILL_GONE", _FILL_GONE)
+    except db.FillConflict as exc:
+        return _problem(409, "FILL_CONFLICT", _FILL_CONFLICT, cells=exc.cells[:200])
+    return _batch_public(db.batch(key))
+
+
+@app.delete("/api/fill/{batch_id}")
+def cancel_fill(batch_id: str) -> dict:
+    """Hủy lô chưa mở: xóa hẳn (6.1). Lô đang mở: bỏ các ô còn chờ, lô xong, ô đã ghi giữ nguyên (N5)."""
+    return db.drop_batch(_batch_key(batch_id))
+
+
+@app.get("/api/fill/{batch_id}")
+def get_fill(batch_id: str) -> dict:
+    row = db.batch(_batch_key(batch_id))
+    if row is None:
+        raise HTTPException(404)
+    return _batch_public(row)
+
+
+@app.get("/api/documents/{document_id}/fill")
+def list_fill(document_id: str) -> list[dict]:
+    """Lô đang mở của tài liệu, để mở lại khi còn ô đỏ chờ (3.8a)."""
+    return [{"batch_id": str(r["batch_id"]), "source_name": r["source_name"], "created_at": r["created_at"].isoformat()} for r in db.open_batches(_key(document_id))]
+
+
+@app.post("/api/fill/{batch_id}/apply")
+def apply_fill(batch_id: str, body: ApplyRequest):
+    """Ghi các ô người dùng đã nhận thành bản mới. Chỉ nhận change_id và lựa chọn; số lấy từ lô đã lưu (4.6)."""
+    key = _batch_key(batch_id)
+    row = db.batch(key)
+    if row is None or row["status"] != "open":
+        return _problem(409, "FILL_GONE", _FILL_GONE)
+    document_id = str(row["document_id"])
+    if body.document_id != document_id:
+        return _problem(409, "FILL_WRONG_DOCUMENT", _FILL_WRONG_DOC)
+    latest = _find(document_id)
+    if latest["version"] != body.base_version:
+        return _problem(409, "STALE_VERSION", _STALE)
+    current_grid = json.loads(store.read_grid(latest["sha256"]))
+    try:
+        decisions, edits, review_again, counts = fill.decide(row["batch"], row["decisions"], [d.model_dump() for d in body.decisions], current_grid)
+    except fill.DecisionInvalid as exc:
+        return _problem(422, "FILL_DECISION_INVALID", exc.message, change_id=exc.change_id)
+    except fill.BatchInvalid:
+        return _problem(422, "FILL_INVALID", _FILL_INVALID)
+    write = None
+    if edits:
+        try:
+            result, data = reader_client.write(store.read(latest["sha256"]), latest["name"], edits, document_id)
+        except reader_client.ReaderUnavailable:
+            return _problem(503, "READER_UNAVAILABLE", _BUSY)
+        if not result["ok"]:
+            return _problem(422, result["code"], result["message"], **result.get("detail", {}))
+        if data is None:
+            return _problem(503, "READER_UNAVAILABLE", _BUSY)
+        sha = hashlib.sha256(data).hexdigest()
+        store.put_new(sha, data, json.dumps(result["grid"], ensure_ascii=False).encode("utf8"))
+        write = {"sha": sha, "size": len(data), "meta": _meta(result), "author": body.author,
+                 "summary": fill.summary(row["source_name"], counts, len(edits)), "edits": edits}
+    try:
+        version_row = db.apply_batch(key, row["document_id"], body.base_version, decisions, write, row["decisions"])
+    except db.StaleVersion:
+        return _problem(409, "STALE_VERSION", _STALE)
+    except db.FillConflict as exc:
+        return _problem(409, "FILL_CONFLICT", _FILL_CONFLICT, cells=exc.cells[:200])
+    except db.BatchChanged:
+        return _problem(409, "FILL_BATCH_CHANGED", _FILL_CHANGED)
+    except LookupError:
+        return _problem(409, "FILL_GONE", _FILL_GONE)
+    pending = sum(1 for d in decisions.values() if d.get("state") == "pending")
+    return {"version": _public(version_row) if version_row else None, "written": len(edits), "pending": pending,
+            "review_again": review_again, "decisions": decisions}

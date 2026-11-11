@@ -54,6 +54,22 @@ def _write(source: pathlib.Path, job: dict, out_file: pathlib.Path) -> dict:
     return result
 
 
+def _fill(template: pathlib.Path, job: dict) -> dict:
+    """Lát 1 (Q133): tạo lô đề xuất bằng vmai, không model, tối đa vàng. Nguồn nằm cạnh biểu mẫu, tên cố định <id>.src.xlsx.
+    Không ghi log tên file hay nội dung. Lỗi của vmai đã có câu tiếng Việt và không chứa tên file (FillError)."""
+    from vmai import FillError, fill_from_excel
+    from vmai.fill import user_message
+
+    source = template.with_name(template.name.removesuffix(".xlsx") + ".src.xlsx")
+    try:
+        batch = fill_from_excel(template, source, spec_id=str(job["spec_id"]), template_name=str(job["filename"]), source_name=str(job["source_name"]))
+    except FillError as exc:
+        return {"ok": False, "code": exc.code, "message": exc.message, "detail": {"reason": str(exc.detail)}}
+    except Exception as exc:  # noqa: BLE001 - lỗi lạ: chỉ trả tên loại lỗi, không trả nội dung
+        return {"ok": False, "code": "FILL_FAILED", "message": user_message("FILL_FAILED"), "detail": {"reason": type(exc).__name__}}
+    return {"ok": True, "batch": json.loads(batch.model_dump_json())}
+
+
 def main() -> int:
     source, job_path, out = map(pathlib.Path, sys.argv[1:4])
     job = json.loads(job_path.read_text(encoding="utf8"))
@@ -61,6 +77,8 @@ def main() -> int:
         result = _write(source, job, out.with_name(out.name.replace(".out.json", ".out.xlsx")))
     elif job["kind"] == "values":
         result = _values(source)
+    elif job["kind"] == "fill":
+        result = _fill(source, job)
     else:
         result = _read(source, job)
     tmp = out.with_name(out.name + ".tmp")

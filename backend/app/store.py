@@ -38,6 +38,15 @@ def put_new(sha: str, data: bytes, grid_json: bytes) -> None:
     _write(_path(sha, ".grid.json"), grid_json)
 
 
+def put_file(sha: str, data: bytes) -> None:
+    """File nguồn của lát 1 (Q133): chỉ lưu file, không lưu lưới đã đọc, vì lưới chứa mọi giá trị kể cả cột người bệnh."""
+    if hashlib.sha256(data).hexdigest() != sha:
+        raise ValueError("Nội dung không khớp hash")
+    path = _path(sha, ".xlsx")
+    if not path.exists():
+        _write(path, data)
+
+
 def put_original(sha: str, data: bytes) -> None:
     """Bản gốc của file đời cũ. Chỉ lưu để không mất, không đưa cho thư viện đọc nào."""
     path = _path(sha, ".original")

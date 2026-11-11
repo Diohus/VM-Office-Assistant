@@ -59,6 +59,7 @@ def _run_job(job: pathlib.Path) -> None:
     finally:
         job.unlink(missing_ok=True)
         (SPOOL / f"{job_id}.xlsx").unlink(missing_ok=True)
+        (SPOOL / f"{job_id}.src.xlsx").unlink(missing_ok=True)  # file nguồn của việc fill (lát 1)
 
 
 def _sweep() -> None:
