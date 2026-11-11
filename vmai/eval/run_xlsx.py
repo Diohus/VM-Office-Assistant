@@ -64,6 +64,10 @@ def score(batch, answer: dict) -> dict:
         value = change.value.normalized if change.value else None
         if expected is None:
             correct = False
+        elif expected.get("accept_values") and value is None:
+            # X04 (D10): một Change đỏ, không tự chọn; đúng khi mọi số khả dĩ đều có trong evidence để người dùng chọn.
+            shown = [e.normalized for e in change.evidence]
+            correct = color == "red" and all(any(_same(s, v) for s in shown) for v in expected["accept_values"])
         elif expected.get("accept_values"):
             correct = any(_same(value, v) for v in expected["accept_values"])
         elif expected.get("value") is None:

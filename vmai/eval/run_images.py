@@ -73,7 +73,9 @@ def read_all() -> None:
         print(directory.name, page.rotation, round(page.sharpness), round(page.brightness), len(first), len(second), flush=True)
 
 
-def _same(a: str, b: str) -> bool:
+def _same(a: str | None, b: str | None) -> bool:
+    if a is None or b is None:
+        return a == b  # ô đỏ không tự chọn số (X04) không khớp đáp án nào
     try:
         return Decimal(a) == Decimal(b)
     except InvalidOperation:
@@ -109,7 +111,7 @@ def score_case(directory: Path, cache: Path = CACHE, ask_model=None) -> dict:
         a1, color = change.target.a1_at_write, change.confidence.final_color.value
         colors[color] += 1
         seen.add(a1)
-        if a1 in gold and _same(change.value.normalized, gold[a1]):
+        if a1 in gold and _same((change.value.normalized if change.value else None), gold[a1]):
             out["right"] += 1
         else:
             wrong[color] += 1

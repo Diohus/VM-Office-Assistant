@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .confidence import Color, SourceKind
 
-SCHEMA_VERSION = "0.3"
+SCHEMA_VERSION = "0.4"
 
 
 class _Model(BaseModel):
@@ -73,6 +73,9 @@ class Evidence(_Model):
     reader: str
     read_text: str
     locator: Locator
+    # Chỉ có khi một ô có nhiều lần đọc khác số (SOURCE_DUPLICATE_RESULT, X04): số đã chuẩn hóa của lần đọc này, để máy chủ
+    # ghi đúng lần đọc người dùng chọn mà không nhận số từ trình duyệt. Các trường hợp khác để trống, số nằm ở `Change.value`.
+    normalized: str | None = None
 
 
 class MappingMethod(str, Enum):
@@ -193,7 +196,7 @@ class LlmCall(_Model):
 
 
 class ProposalBatch(_Model):
-    schema_version: Literal["0.3"] = SCHEMA_VERSION
+    schema_version: Literal["0.4"] = SCHEMA_VERSION
     rule_version: str
     proposal_id: str
     created_at: str

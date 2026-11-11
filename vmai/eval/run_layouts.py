@@ -19,7 +19,9 @@ LAYOUTS = ROOT / "fixtures" / "eval" / "generated" / "layouts"
 OUT = ROOT / "vmai" / "out"
 
 
-def _same(a: str, b: str) -> bool:
+def _same(a: str | None, b: str | None) -> bool:
+    if a is None or b is None:
+        return a == b  # ô đỏ không tự chọn số (X04) không khớp đáp án nào
     try:
         return Decimal(a) == Decimal(b)
     except InvalidOperation:
@@ -70,8 +72,8 @@ def run_case(directory: Path) -> dict:
         a1 = change.target.a1_at_write
         color = change.confidence.final_color.value
         colors[color] += 1
-        proposed[a1] = change.value.normalized
-        good = a1 in answer["cells"] and _same(change.value.normalized, answer["cells"][a1])
+        proposed[a1] = (change.value.normalized if change.value else None)
+        good = a1 in answer["cells"] and _same((change.value.normalized if change.value else None), answer["cells"][a1])
         out["right" if good else "wrong"] += 1
         if color == "green" and not good:
             out["wrong_green"] += 1
@@ -90,7 +92,7 @@ def run_case(directory: Path) -> dict:
             if change.confidence.final_color.value == "green":
                 greens += 1
                 a1 = change.target.a1_at_write
-                if a1 not in answer["cells"] or not _same(change.value.normalized, answer["cells"][a1]):
+                if a1 not in answer["cells"] or not _same((change.value.normalized if change.value else None), answer["cells"][a1]):
                     bad += 1
         out["confirmed_wrong_green"] = bad
         out["confirmed_green"] = greens

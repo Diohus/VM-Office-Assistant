@@ -24,7 +24,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-vmai = ["config/*.yaml", "specs/*.yaml"]
+vmai = ["config/*.yaml", "specs/*.yaml", "data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

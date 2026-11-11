@@ -59,7 +59,7 @@ from .contract import (
 from .errors import FeatureNotReleased
 from .headers import HeaderPlan, apply_header_map
 from .mapping import match_field, normalize_text, same_unit, split_header_unit
-from .phi import looks_like_person_name
+from .phi import looks_like_person_name, phi_kind
 from .numbers import NumberStyle, ParseStatus, infer_column_style, parse_number
 from .profile import ProfileStatus
 from .source_xlsx import SourceCell, SourceFacts
@@ -215,6 +215,32 @@ def _review_unit(color: Color, has_existing: bool) -> str:
     if color is Color.RED or has_existing:
         return "cell"
     return "row" if color is Color.YELLOW else "group"
+
+
+
+UNKNOWN_NAMES_SHOWN = 3
+_MAX_NAME_LENGTH = 30
+
+
+def _safe_test_name(name: str) -> bool:
+    """Tên lạ ở cột khóa chỉ được hiện khi trông như tên xét nghiệm. Giống tên người, mã người bệnh, chuỗi dài hay nhiều số
+    thì không hiện (cột khóa có thể bị lẫn dữ liệu khác), chỉ đếm."""
+    digits = sum(c.isdigit() for c in name)
+    return 0 < len(name) <= _MAX_NAME_LENGTH and digits <= 3 and not looks_like_person_name(name) and phi_kind(name) is None
+
+
+def _unknown_names_detail(unknown: dict[str, int]) -> str:
+    """Tối đa 3 tên an toàn, rồi "và N tên khác". Không bao giờ có tên giống thông tin về người."""
+    names = sorted(unknown)
+    safe = [n for n in names if _safe_test_name(n)]
+    shown = safe[:UNKNOWN_NAMES_SHOWN]
+    rest = len(names) - len(shown)
+    hidden = len(safe) < len(names)  # có tên bị giấu: nói rõ là không hiện ở đây (PO/BA 11/11)
+    if not shown:
+        return f"{rest} tên, app không hiện ở đây"
+    if not rest:
+        return ", ".join(shown)
+    return ", ".join(shown) + f" và {rest} tên khác" + (" không hiện ở đây" if hidden else "")
 
 
 class _Builder:
@@ -456,7 +482,7 @@ class _Builder:
         if wrong_period:
             self.notices.append(Notice(reason="SOURCE_WRONG_MONTH", count=wrong_period, detail=f"{wrong_period} dòng không thuộc kỳ của biểu mẫu. Không điền."))
         if unknown:
-            detail = f"Mã chưa có trong bảng đồng nghĩa, cần hỏi người dùng: {', '.join(sorted(unknown))}"
+            detail = _unknown_names_detail(unknown)  # giao diện điền vào {tên} của câu hiện
             self.notices.append(Notice(reason="MAP_TEST_UNKNOWN", count=sum(unknown.values()), detail=detail))
         if not_in_template:
             self.notices.append(Notice(reason="MAP_ROW_NOT_FOUND", count=not_in_template, detail=f"{not_in_template} dòng có khóa không có trong biểu mẫu. Không điền."))
@@ -616,11 +642,33 @@ class _Builder:
             else:
                 distinct[reading.cell.text.strip() or (reading.cell.formula or "")].append(reading)
         duplicate = len(distinct) > 1
+        start = len(self.changes)
         for group in distinct.values():
             if column.type == "number":
                 self._emit_number(key, column, group, style, suspect, duplicate)
             else:
                 self._emit_text(key, column, group, duplicate)
+        if duplicate and len(self.changes) - start > 1:
+            self._merge_duplicates(start)
+
+    def _merge_duplicates(self, start: int) -> None:
+        """Một ô chỉ có một đề xuất (D10). Nhiều lần đọc khác số thì gộp thành một Change đỏ, không chọn số nào
+        (`value` rỗng), `evidence` giữ mọi lần đọc kèm số đã chuẩn hóa để người dùng chọn (X04)."""
+        parts = self.changes[start:]
+        del self.changes[start:]
+        first = parts[0]
+        evidence = [e.model_copy(update={"normalized": c.value.normalized if c.value else None}) for c in parts for e in c.evidence]
+        reasons, seen = [], set()
+        for c in parts:
+            for r in c.confidence.reasons:
+                if (r.code, r.detail) not in seen:
+                    seen.add((r.code, r.detail))
+                    reasons.append(r)
+        ranks = {Color.RED: 0, Color.YELLOW: 1, Color.GREEN: 2}
+        lowest = lambda attr: min((getattr(c.confidence, attr) for c in parts), key=ranks.__getitem__)  # noqa: E731
+        confidence = ConfidenceModel(read_color=lowest("read_color"), map_color=lowest("map_color"), final_color=Color.RED, reasons=reasons)
+        merged = first.model_copy(update={"value": None, "evidence": evidence, "confidence": confidence, "review": first.review.model_copy(update={"unit": "cell"})})
+        self.changes.append(Change.model_validate(merged.model_dump()))
 
     def _target(self, key, column: FormColumn) -> CellTarget:
         table = self.spec.table

@@ -17,7 +17,7 @@ Dữ liệu thử giả: `pytest` tự sinh khi thiếu, qua `fixtures/eval/make
 .venv/Scripts/python.exe ../fixtures/eval/make_fixtures.py
 ```
 
-Token OCR của ảnh giả nằm sẵn ở `fixtures/eval/ocr_tokens/`, nên test không cần cài OCR. Mã lý do lấy từ `tests/data/doc_codes.json`, bản chụp của `docs/ai`; sửa tài liệu thì chạy `tests/doc_snapshot.py`. X12 (Excel thật lưu) vẫn cần `../spikes/editor/.venv/Scripts/python.exe ../fixtures/eval/resave_x12.py`, test không dùng.
+Token OCR của ảnh giả nằm sẵn ở `fixtures/eval/ocr_tokens/`, nên test không cần cài OCR. Câu theo mã lấy từ `src/vmai/data/doc_codes.json`, bản chụp của `docs/ai`; sửa tài liệu thì chạy `tests/doc_snapshot.py`. X12 (Excel thật lưu) vẫn cần `../spikes/editor/.venv/Scripts/python.exe ../fixtures/eval/resave_x12.py`, test không dùng.
 
 Kiểm tra:
 

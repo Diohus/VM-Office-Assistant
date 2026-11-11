@@ -821,7 +821,7 @@ def test_no_missing_input_changes_nothing():
     assert _formula([Color.GREEN, Color.GREEN], total_inputs=2) == (Color.GREEN, ())
 
 
-@pytest.mark.skipif(not FULL_TREE, reason="Kho công khai không có docs/ nội bộ: dùng bản chụp tests/data/doc_codes.json")
+@pytest.mark.skipif(not FULL_TREE, reason="Kho công khai không có docs/ nội bộ: dùng bản chụp src/vmai/data/doc_codes.json")
 def test_doc_snapshot_matches_the_docs():
     """Trên cây đầy đủ không bỏ qua: thiếu docs/ thì lỗi, bản chụp cũ thì lỗi."""
     assert DOC.exists(), "Cây đầy đủ phải có docs/ai/confidence_rules.md"

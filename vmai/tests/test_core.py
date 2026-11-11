@@ -234,7 +234,7 @@ def test_everything_crosses_services_as_json(x01):
     through = propose(form2, source2, plan2)
     keep = lambda b: [c.model_dump() for c in b.changes]  # noqa: E731
     assert keep(direct) == keep(through)
-    assert ProposalBatch.model_validate_json(through.model_dump_json()).schema_version == "0.3"
+    assert ProposalBatch.model_validate_json(through.model_dump_json()).schema_version == "0.4"
 
 
 # ---------- Hồ sơ ----------

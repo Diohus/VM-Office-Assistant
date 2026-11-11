@@ -19,5 +19,6 @@ Sinh lại bằng `spikes/editor/gen_fixtures.py` và `run_x19.py`, `run_lo.py`.
 | `GIA-X19_khong_co_vba.xlsm` | X19: đuôi `.xlsm`, **không có VBA thật** |
 | `GIA-X19_hong.xlsx` | X19: file bị cắt ngang, không mở được |
 | `GIA-X19_sheet_khoa.xlsx` | Sheet có khóa, mật khẩu giả `khoa-gia` |
+| `nguon_lat1/` | 9 file nguồn giả cho lát 1 nối AI (Q133), dùng với `GIA-QC-01_mau.xlsx`: X02 (tên xét nghiệm chưa khai), X02a (tên đã khai), X03, X04, X07, X10, X13, X17, người chạy tên giả. AI Engineer sinh bằng `fixtures/eval/generate_lat1_sources.py`, seed cố định; mô tả từng ca ở `nguon_lat1/README.md` |
 
 `GIA-KHO-02_kho.xlsx` và `~$GIA-KHO-02_kho.xlsx` là bản lỗi cũ, bị một tiến trình Excel ẩn giữ khóa. Xóa khi tiến trình đó đã tắt. Đừng dùng bản này: tên sheet `Quy1` trùng dạng địa chỉ ô.

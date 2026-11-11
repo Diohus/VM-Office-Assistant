@@ -12,21 +12,23 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DOCS = ROOT / "docs" / "ai"
-SNAPSHOT = Path(__file__).resolve().parent / "data" / "doc_codes.json"
+SNAPSHOT = Path(__file__).resolve().parents[1] / "src" / "vmai" / "data" / "doc_codes.json"  # trong gói: fill.py lấy câu lỗi từ đây
 _CODE = re.compile(r"`([A-Z]{3,}_[A-Z0-9_]+)`")
 _ROW_CODE = re.compile(r"^`([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)`$")
 
 
-def _sentences(text: str) -> dict[str, str]:
-    """Cột "Câu hiện" của mỗi bảng, theo dòng tiêu đề của bảng đó. Dòng đầu tiên của một mã thắng."""
+def _sentences(text: str, header: str = "Câu hiện") -> dict[str, str]:
+    """Cột `header` của mỗi bảng, theo dòng tiêu đề của bảng đó. Dòng đầu tiên của một mã thắng."""
     out: dict[str, str] = {}
     column = None
     for line in text.splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")] if line.startswith("|") else None
         if cells is None:
             column = None
-        elif "Câu hiện" in cells:
-            column = cells.index("Câu hiện")
+        elif header in cells and "Mã" in cells:
+            column = cells.index(header)
+        elif "Mã" in cells:
+            column = None
         elif column is not None and (m := _ROW_CODE.match(cells[0])) and column < len(cells):
             out.setdefault(m.group(1), cells[column])
     return out
@@ -57,6 +59,9 @@ def build() -> dict:
         "confidence_rules_codes": sorted(set(_CODE.findall(rules))),
         "reason_texts": {code: sentences.get(code, "") for code in sorted(mentioned)},
         "ui_texts": _ui_texts(texts),
+        "actions": {code: action for code, action in sorted(_sentences(texts, "Làm gì").items())},
+        "actions_lat1": dict(sorted(_sentences(texts, "Làm gì ở lát 1").items())),
+        "texts_lat1": {code: s for code, s in sorted(_sentences(texts, "Câu hiện ở lát 1").items()) if s},
     }
 
 

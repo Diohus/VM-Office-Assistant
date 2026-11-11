@@ -41,7 +41,7 @@ _FIXED_TIME = "2026-11-05T00:00:00+00:00"
 _FIXED_ZIP = (2026, 11, 5, 0, 0, 0)
 _PERSON = "tester.gia"
 # Bản chụp mã từ docs/ai/confidence_rules.md (kho công khai không có docs/). test_rules kiểm bản chụp khớp tài liệu.
-_DOC_CODES = json.loads((ROOT / "vmai" / "tests" / "data" / "doc_codes.json").read_text(encoding="utf-8"))["confidence_rules_codes"]
+_DOC_CODES = json.loads((ROOT / "vmai" / "src" / "vmai" / "data" / "doc_codes.json").read_text(encoding="utf-8"))["confidence_rules_codes"]
 _RULE_CODES = sorted(c for c in _DOC_CODES if re.fullmatch(r"(?:READ|MAP|CHECK|SOURCE|PROFILE|PERSON)_[A-Z0-9_]+", c))
 
 

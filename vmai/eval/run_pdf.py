@@ -22,7 +22,9 @@ OWN = ROOT / "fixtures" / "eval" / "generated" / "pdf"
 OUT = ROOT / "vmai" / "out"
 
 
-def _same(a: str, b: str) -> bool:
+def _same(a: str | None, b: str | None) -> bool:
+    if a is None or b is None:
+        return a == b  # ô đỏ không tự chọn số (X04) không khớp đáp án nào
     try:
         return Decimal(a) == Decimal(b)
     except InvalidOperation:
@@ -49,7 +51,7 @@ def score_case(directory: Path) -> dict:
         a1, color = change.target.a1_at_write, change.confidence.final_color.value
         colors[color] += 1
         seen.add(a1)
-        if a1 not in gold or not _same(change.value.normalized, gold[a1]):
+        if a1 not in gold or not _same((change.value.normalized if change.value else None), gold[a1]):
             wrong[color] += 1
     out.update(colors=dict(colors), wrong_by_color=dict(wrong), missed=len(set(gold) - seen))
     return out
