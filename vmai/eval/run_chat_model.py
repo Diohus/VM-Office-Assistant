@@ -47,7 +47,8 @@ def _norm_formula(text: str) -> str:
 
 def _grade(expect: dict, plan, masked_cells: set[str]) -> tuple[str, list[str]]:
     applied = plan.ops
-    notes = [f"{o.op} {o.cell}" for o in applied]
+    # Chữ công thức do model viết trên dữ liệu giả: ghi lại để người chấm được lượt `can_cham`. Không ghi giá trị ô.
+    notes = [f"{o.op} {o.cell}" + (f" {o.formula}" if o.formula else "") for o in applied]
     if any(o.cell in masked_cells for o in applied):
         return "lot_o_che", notes
     want = expect.get("ops")
@@ -80,9 +81,16 @@ def main() -> int:
     parser.add_argument("--profile", default="openai-luna")
     parser.add_argument("--confirm-network", action="store_true", help="Cho phép gọi dịch vụ ngoài, tốn phí. Chỉ dữ liệu giả")
     parser.add_argument("--runs", type=int, default=RUNS)
+    parser.add_argument("--cases", default="", help="Chỉ chạy các ca này, ví dụ C20 hoặc C05,C20")
     args = parser.parse_args()
 
     spec = json.loads(CASES.read_text(encoding="utf-8"))
+    if args.cases:
+        wanted = {c.strip() for c in args.cases.split(",") if c.strip()}
+        spec["cases"] = [c for c in spec["cases"] if c["id"] in wanted]
+        if not spec["cases"]:
+            print("Không có ca nào khớp --cases.")
+            return 1
     model_file = ROOT / spec["model_file"]
     if not model_file.exists():
         print(f"Thiếu file đã tính lại: {spec['model_file']}. Chạy fixtures/eval/recalc_chat_fixtures.py trước.")
@@ -176,7 +184,8 @@ def main() -> int:
           f"Độ trễ trung vị {latencies[len(latencies) // 2] / 1000 if latencies else 0:.1f} giây.")
     if stopped:
         print(stopped)
-    out = Path(__file__).resolve().parents[1] / "out" / f"chat_model_{args.profile}.json"
+    suffix = f"_{args.cases.replace(',', '_')}" if args.cases else ""
+    out = Path(__file__).resolve().parents[1] / "out" / f"chat_model_{args.profile}{suffix}.json"
     out.write_text(json.dumps({"model": profile.model, "date": time.strftime("%Y-%m-%d %H:%M"), "runs": args.runs,
                                "totals": dict(totals), "overall": dict(overall), "rows": rows, "stopped": stopped},
                               ensure_ascii=False, indent=1), encoding="utf-8")
