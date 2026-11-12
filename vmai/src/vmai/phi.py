@@ -40,6 +40,25 @@ def looks_like_person_name(text: str) -> bool:
     return normalize_text(words[0]) in _SURNAMES
 
 
+_WORD_EDGE = re.compile(r"^[^\w]+|[^\w]+$")
+
+
+def contains_person_name(text: str) -> bool:
+    """Trong một câu có cụm giống tên người: một họ viết hoa, sau là 1-3 chữ viết hoa (`Trần Giả Định`, `Lê Giả A`).
+
+    Dùng cho câu người dùng gõ và chữ model trả (Q135 (b)). Tên không theo mẫu họ sẽ lọt; họ đứng đầu câu kèm chữ
+    viết hoa khác (`Do Máy`) sẽ bị báo nhầm, chiều an toàn.
+    """
+    words = [_WORD_EDGE.sub("", w) for w in str(text).split()]
+    for i, word in enumerate(words):
+        if not word or not word[0].isupper() or normalize_text(word) not in _SURNAMES:
+            continue
+        nxt = words[i + 1] if i + 1 < len(words) else ""
+        if nxt and nxt[0].isupper() and nxt.isalpha():
+            return True
+    return False
+
+
 def phi_kind(text: str) -> str | None:
     """Loại dấu hiệu trong một chuỗi, ví dụ một tiêu đề cột."""
     norm = normalize_text(text)

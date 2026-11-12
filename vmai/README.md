@@ -30,6 +30,8 @@ Kiểm tra:
 .venv/Scripts/python.exe eval/run_costs.py
 ```
 
+Khung chat lát 2 (Q135), eval tầng cổng, model giả, không mạng, thoát mã 1 khi có op lọt: `.venv/Scripts/python.exe eval/run_chat_gates.py`. Báo cáo: [docs/ai/chat_report.md](../docs/ai/chat_report.md).
+
 Ca giới hạn (lô lớn, tiêu đề lạ, nhiều nguồn), tự tạo dữ liệu giả trong `out/limits/`, khoảng 12 phút, `--quick` khoảng 3 phút. Kết quả ở [docs/huong_dan/kich_ban_test_ai.md](../docs/huong_dan/kich_ban_test_ai.md):
 
 ```text
