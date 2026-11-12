@@ -1,0 +1,18 @@
+# Chỉ cho bộ test (8089), tests/integration/run.sh tự gắn. llm gọi máy giả fakeai thay OpenAI, key là khóa mồi.
+services:
+  llm:
+    environment:
+      LLM_BASE_URL: http://fakeai:8080/v1
+      LLM_UPSTREAM_TIMEOUT_SECONDS: "5"
+    depends_on: [egress, fakeai]
+
+  fakeai:
+    image: python:3.11-slim@sha256:db20d8506e2f15b6db39b40b6015ca46bae855dec6dd326d462cfe79ae972893
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    user: "1000"
+    volumes: ["./tests/integration/fakeai:/app:ro"]
+    command: ["python", "-B", "/app/fakeai.py"]
+    networks: [llm_out]
+    mem_limit: 128m

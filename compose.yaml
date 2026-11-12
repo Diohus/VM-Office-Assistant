@@ -1,5 +1,6 @@
 # Chạy: sh tools/dev/up.sh (xem docs/engineering/run.md)
 # Chỉ web có đường ra ngoài và chỉ mở trên 127.0.0.1. API và Postgres ở mạng nội bộ, reader không có mạng.
+# Lát 2 (Q135): llm gọi model, chỉ ra ngoài qua egress (chỉ CONNECT api.openai.com:443). Chỉ llm có key, qua secret dạng file.
 name: vm-office
 
 x-hardened: &hardened
@@ -12,6 +13,9 @@ x-hardened: &hardened
 secrets:
   machine_ca:
     file: .local/machine-ca.pem
+  # Key AI (Q135): file .env của Owner, tools/dev/up.sh chọn đường dẫn và không đọc nội dung. Bộ test dùng file khóa mồi.
+  llm_env:
+    file: ${LLM_SECRET_FILE:-.local/llm_none.env}
 
 services:
   web:
@@ -37,8 +41,8 @@ services:
     environment:
       DATABASE_URL: postgresql://vm:${POSTGRES_PASSWORD:?Cần đặt POSTGRES_PASSWORD}@db:5432/vm
     volumes: ["store:/store", "spool:/spool", "lospool:/lospool"]
-    networks: [internal]
-    depends_on: [db, reader]
+    networks: [internal, llm_in]
+    depends_on: [db, reader, llm]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
       interval: 3s
@@ -69,6 +73,32 @@ services:
     mem_limit: 2g
     pids_limit: 256
 
+  llm:
+    <<: *hardened
+    build:
+      context: .
+      dockerfile: workers/llm/Dockerfile
+      secrets: [machine_ca]
+    secrets: [llm_env]
+    networks: [llm_in, llm_out]
+    depends_on: [egress]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8100/health', timeout=3)"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    mem_limit: 256m
+    pids_limit: 64
+
+  egress:
+    <<: *hardened
+    build:
+      context: .
+      dockerfile: workers/egress/Dockerfile
+    networks: [llm_out, egress_out]
+    mem_limit: 128m
+    pids_limit: 32
+
   db:
     image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     restart: unless-stopped
@@ -85,6 +115,13 @@ networks:
   edge: {}
   internal:
     internal: true
+  # Chỉ api và llm: web và các dịch vụ khác không gọi thẳng được llm.
+  llm_in:
+    internal: true
+  # Chỉ llm và egress: llm không tự ra Internet được, kể cả khi bỏ cấu hình proxy.
+  llm_out:
+    internal: true
+  egress_out: {}
 
 volumes:
   store: {}

@@ -20,6 +20,7 @@ Sinh lại bằng `spikes/editor/gen_fixtures.py` và `run_x19.py`, `run_lo.py`.
 | `GIA-X19_hong.xlsx` | X19: file bị cắt ngang, không mở được |
 | `GIA-X19_sheet_khoa.xlsx` | Sheet có khóa, mật khẩu giả `khoa-gia` |
 | `GIA-X20_thong_ke_vung_it_so.xlsx` | N9 (R-1015): 41 hàm thống kê (STDEV, VAR, MINA, MEDIAN...) trên vùng rỗng, 1 số, 2 số, chỉ chữ, số lẫn chữ, số âm. Số đã lưu do Excel thật tính, là đáp án để so lưới. Sinh bằng `tools/excel_check/make_stat_empty.py` |
+| `GIA-X21_ham_logic_lam_tron.xlsx` | Lát 2 (Q135): IF, ROUND, ABS, AND, OR trên số khó làm tròn (2,675; 1,005; -2,5; 0,1+0,2), trống, chữ, TRUE, 417 công thức. Số đã lưu do Excel thật tính, là đáp án để so lưới; chốt danh sách hàm cho phép của khung chat. Sinh bằng `tools/excel_check/make_logic_round.py` |
 | `nguon_lat1/` | 9 file nguồn giả cho lát 1 nối AI (Q133), dùng với `GIA-QC-01_mau.xlsx`: X02 (tên xét nghiệm chưa khai), X02a (tên đã khai), X03, X04, X07, X10, X13, X17, người chạy tên giả. AI Engineer sinh bằng `fixtures/eval/generate_lat1_sources.py`, seed cố định; mô tả từng ca ở `nguon_lat1/README.md` |
 
 `GIA-KHO-02_kho.xlsx` và `~$GIA-KHO-02_kho.xlsx` là bản lỗi cũ, bị một tiến trình Excel ẩn giữ khóa. Xóa khi tiến trình đó đã tắt. Đừng dùng bản này: tên sheet `Quy1` trùng dạng địa chỉ ô.

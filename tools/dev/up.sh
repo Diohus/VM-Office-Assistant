@@ -28,5 +28,12 @@ fi
 if [ ! -f .local/machine-ca.pem ]; then
   powershell -NoProfile -ExecutionPolicy Bypass -File tools/deps/export_machine_ca.ps1 2>/dev/null || : > .local/machine-ca.pem
 fi
+# Key AI (Q135): chỉ chọn đường dẫn file, không đọc nội dung. Docker gắn file vào riêng dịch vụ llm.
+# Bộ test đặt LLM_SECRET_FILE là file khóa mồi, không bao giờ dùng .env thật. Chưa có .env thì llm chạy không có key.
+: > .local/llm_none.env
+if [ -z "${LLM_SECRET_FILE:-}" ]; then
+  if [ -f .env ]; then LLM_SECRET_FILE=.env; else LLM_SECRET_FILE=.local/llm_none.env; fi
+fi
+export LLM_SECRET_FILE
 docker compose -p "${VM_PROJECT:-vm-office}" --env-file .local/compose.env up -d --build --wait "$@"
 echo "App: http://127.0.0.1:${WEB_PORT:-8088}"

@@ -129,6 +129,8 @@ kho.display_all = await page.evaluate(() => window.vmGrid.allDisplay());
 await inspect('GIA-NGUON_2026-09.xlsx', path.join(FIX, 'GIA-NGUON_2026-09.xlsx'));
 // N9: hàm thống kê trên vùng ít số; số Excel đã lưu là đáp án (tools/excel_check/make_stat_empty.py).
 await inspect('GIA-X20_thong_ke_vung_it_so.xlsx', path.join(FIX, 'GIA-X20_thong_ke_vung_it_so.xlsx'));
+// Lát 2 (Q135): IF, ROUND, ABS, AND, OR cho danh sách hàm khung chat được dùng; số Excel đã lưu là đáp án (tools/excel_check/make_logic_round.py).
+await inspect('GIA-X21_ham_logic_lam_tron.xlsx', path.join(FIX, 'GIA-X21_ham_logic_lam_tron.xlsx'));
 await inspect('GIA-X18_ham_mang.xlsx', path.join(FIX, 'GIA-X18_ham_mang.xlsx'));
 await inspect('x18_canary.xlsx', process.env.VM_CANARY_FILE);
 const x18b = await inspect('GIA-X18b_lien_ket_ngoai.xlsx', path.join(FIX, 'GIA-X18b_lien_ket_ngoai.xlsx'));

@@ -172,3 +172,10 @@ def test_n9_pdf_bieu_mau_qc_trong_xuat_duoc(run):
     p = run["blank_pdf"]
     assert p["sd_B40"] in ("", None), "SD của cột chưa có số phải trống như Excel, không phải 0"
     assert p["error"] is None and p["downloaded"] is True and p["name"] == "GIA-QC-01_mau_xuat.pdf"
+
+
+def test_lat2_if_round_abs_and_or_khop_excel(run):
+    # Q135: hàm cho phép của khung chat phải được lưới tính như Excel. Có số khó làm tròn (2,675; 1,005; -2,5), trống, chữ, TRUE.
+    r = run["files"]["GIA-X21_ham_logic_lam_tron.xlsx"]
+    assert r["formulas"] >= 400 and r["problems"] == []
+    assert r["mismatches"] == []

@@ -2,6 +2,10 @@
 !backend/
 !workers/reader/
 !workers/libreoffice/
+!workers/llm/llm_service.py
+!workers/llm/Dockerfile
+!workers/egress/egress.py
+!workers/egress/Dockerfile
 !vmai/src/vmai/
 !frontend/
 **/.venv
