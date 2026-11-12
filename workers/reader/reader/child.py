@@ -1,4 +1,5 @@
-"""Tiến trình con xử lý đúng một việc rồi thoát. Việc là `read` (mở file) hoặc `write` (ghi ô vào bản sao)."""
+"""Tiến trình con xử lý đúng một việc rồi thoát. Việc là `read` (mở file), `write` (ghi ô vào bản sao), `values`, `fill`,
+hoặc `chat_prepare`, `chat_check` (lát 2, Q135: che cột và kiểm thao tác của model, không mạng, không key)."""
 from __future__ import annotations
 
 import json
@@ -70,6 +71,30 @@ def _fill(template: pathlib.Path, job: dict) -> dict:
     return {"ok": True, "batch": json.loads(batch.model_dump_json())}
 
 
+def _chat_prepare(job: dict) -> dict:
+    """Dựng payload gửi model và che ô người, người bệnh (vmai.chat). Không ghi log nội dung."""
+    from vmai.chat import ChatInputError, prepare_chat
+
+    try:
+        prepared = prepare_chat(job["request"])
+    except ChatInputError as exc:
+        return {"ok": False, "code": exc.code, "items": [str(i)[:40] for i in (exc.items or [])][:20]}
+    except Exception as exc:  # noqa: BLE001 - lỗi lạ: chỉ trả tên loại lỗi, không trả nội dung
+        return {"ok": False, "code": "CHAT_BAD_INPUT", "items": [], "reason": type(exc).__name__}
+    return {"ok": True, "prepared": json.loads(prepared.model_dump_json())}
+
+
+def _chat_check(job: dict) -> dict:
+    """7 cổng trên kết quả model (vmai.chat). Lượt hỏng thành status rejected, không ném lỗi."""
+    from vmai.chat import check_chat
+
+    try:
+        plan = check_chat(job["context"], job["raw_text"], job["llm_call"], job["masked"])
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "code": "CHAT_CHECK_FAILED", "reason": type(exc).__name__}
+    return {"ok": True, "plan": json.loads(plan.model_dump_json())}
+
+
 def main() -> int:
     source, job_path, out = map(pathlib.Path, sys.argv[1:4])
     job = json.loads(job_path.read_text(encoding="utf8"))
@@ -79,6 +104,10 @@ def main() -> int:
         result = _values(source)
     elif job["kind"] == "fill":
         result = _fill(source, job)
+    elif job["kind"] == "chat_prepare":
+        result = _chat_prepare(job)
+    elif job["kind"] == "chat_check":
+        result = _chat_check(job)
     else:
         result = _read(source, job)
     tmp = out.with_name(out.name + ".tmp")

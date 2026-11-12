@@ -15,7 +15,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from . import comparison, converter_client, db, fill, reader_client, store
+from . import chat, comparison, converter_client, db, fill, llm_client, reader_client, store
 from .config import MAX_UPLOAD_BYTES
 
 MAX_EDITS = 5000
@@ -62,10 +62,17 @@ class Edit(BaseModel):
     formula: str | None = Field(default=None, max_length=8192)
 
 
+class CellRef(BaseModel):
+    sheet: str = Field(max_length=255)
+    cell: str = Field(max_length=12)
+
+
 class SaveRequest(BaseModel):
     base_version: int
     author: str = Field(min_length=1, max_length=120)
     edits: list[Edit] = Field(min_length=1, max_length=MAX_EDITS)
+    # Lát 2 (Q135): ô do AI sửa qua khung chat, chưa lưu. Phải nằm trong `edits`; lịch sử bản ghi rõ.
+    ai_cells: list[CellRef] = Field(default_factory=list, max_length=MAX_EDITS)
 
 
 class RestoreRequest(BaseModel):
@@ -145,13 +152,15 @@ def _first_sha(document_id: uuid.UUID) -> str:
 
 
 def _version_row(row: dict) -> dict:
-    return {"version": row["version"], "created_at": row["created_at"].isoformat(), "author": row["author"], "summary": row["summary"], "restored_from": row["restored_from"]}
+    return {"version": row["version"], "created_at": row["created_at"].isoformat(), "author": row["author"], "summary": row["summary"], "restored_from": row["restored_from"],
+            "ai_cells": len((row.get("meta") or {}).get("ai_cells", []))}
 
 
 @app.get("/api/health")
 def health() -> dict:
     db.ping()
-    return {"status": "ok"}
+    # Bản thử (trần khác mặc định hoặc đồng hồ thử): giao diện hiện nhãn "Bản thử" để không ai nhầm với bản thật.
+    return {"status": "ok", "chat_test_settings": chat.load_settings().is_test}
 
 
 @app.post("/api/documents", status_code=201)
@@ -239,6 +248,10 @@ def save_version(document_id: str, body: SaveRequest):
     if db.latest(_key(document_id))["version"] != body.base_version:
         return _problem(409, "STALE_VERSION", _STALE)
     edits = [e.model_dump() for e in body.edits]
+    ai = {(c.sheet, c.cell.upper()) for c in body.ai_cells}
+    edited = {(e["sheet"], e["cell"].upper()) for e in edits}
+    if not ai <= edited:
+        return _problem(422, "AI_CELLS_INVALID", _INVALID)
     try:
         result, data = reader_client.write(store.read(base["sha256"]), base["name"], edits, document_id)
     except reader_client.ReaderUnavailable:
@@ -249,8 +262,15 @@ def save_version(document_id: str, body: SaveRequest):
         return _problem(503, "READER_UNAVAILABLE", _BUSY)
     sha = hashlib.sha256(data).hexdigest()
     store.put_new(sha, data, json.dumps(result["grid"], ensure_ascii=False).encode("utf8"))
+    meta = _meta(result)
+    summary = f"Sửa {len(edits)} ô"
+    if ai:
+        meta["ai_cells"] = sorted(f"{sheet}!{cell}" for sheet, cell in ai)
+        summary += f", {len(ai)} ô do AI sửa qua chat"
+    for e in edits:
+        e["by_ai"] = (e["sheet"], e["cell"].upper()) in ai
     try:
-        row = db.add_version(_key(document_id), body.base_version, sha, len(data), _meta(result), body.author, f"Sửa {len(edits)} ô", edits)
+        row = db.add_version(_key(document_id), body.base_version, sha, len(data), meta, body.author, summary, edits)
     except db.StaleVersion:
         return _problem(409, "STALE_VERSION", _STALE)
     return _public(row)
@@ -491,3 +511,118 @@ def apply_fill(batch_id: str, body: ApplyRequest):
     pending = sum(1 for d in decisions.values() if d.get("state") == "pending")
     return {"version": _public(version_row) if version_row else None, "written": len(edits), "pending": pending,
             "review_again": review_again, "decisions": decisions}
+
+
+# ---------- Lát 2: khung chat (Q135), hợp đồng docs/contracts/chat_edit_plan.md ----------
+
+_CHAT_TEXT = {
+    "CHAT_PREVIEW_EXPIRED": "Bản xem trước đã hết hạn hoặc đã gửi. Bảng không đổi. Anh/chị gửi lại yêu cầu.",
+    "CHAT_BUSY": "AI đang làm yêu cầu trước của tài liệu này. Anh/chị chờ xong rồi gửi tiếp.",
+    "CHAT_TURN_LIMIT": "Yêu cầu này vượt hạn mức chi phí một lần gửi. Anh/chị chọn vùng nhỏ hơn rồi gửi lại.",
+    "CHAT_DAY_LIMIT": "Hôm nay đã dùng hết hạn mức gọi AI. Khung chat dùng lại được từ 0 giờ ngày mai (giờ Việt Nam). Anh/chị vẫn sửa tay, Hoàn tác và Lưu bình thường.",
+    "CHAT_MODEL": "Chưa gọi được AI lần này. Bảng không đổi. Anh/chị thử lại sau.",
+}
+_CHAT_STATUS = {"CHAT_BUSY": 409, "CHAT_TURN_LIMIT": 422, "CHAT_DAY_LIMIT": 429, "CHAT_NO_PRICE": 503}
+
+
+class ChatCellIn(BaseModel):
+    a1: str = Field(max_length=12)
+    t: Literal["number", "date", "boolean", "text"]
+    v: str | None = Field(default=None, max_length=2000)
+    f: str | None = Field(default=None, max_length=8192)
+    display: str | None = Field(default=None, max_length=2000)
+
+
+class ChatSheetIn(BaseModel):
+    name: str = Field(max_length=255)
+    region: str = Field(max_length=32)
+    cells: list[ChatCellIn] = Field(max_length=3000)
+    merges: list[str] = Field(default_factory=list, max_length=3000)
+
+
+class ChatPreviewRequest(BaseModel):
+    base_version: int
+    active_sheet: str = Field(max_length=255)
+    sheets: list[ChatSheetIn] = Field(min_length=1, max_length=20)
+    message: str = Field(max_length=4000)  # vmai báo CHAT_MESSAGE_TOO_LONG từ 1.000 ký tự
+
+
+def _chat_problem(status: int, code: str, message_key: str | None = None, **detail) -> JSONResponse:
+    return _problem(status, code, _CHAT_TEXT.get(message_key or code, _CHAT_TEXT["CHAT_MODEL"]), **detail)
+
+
+@app.post("/api/documents/{document_id}/chat/preview")
+def chat_preview(document_id: str, body: ChatPreviewRequest):
+    """Bước 1: reader che ô người, người bệnh và dựng đúng chuỗi sẽ gửi. Bản này chỉ giữ trong bộ nhớ, 10 phút."""
+    key = _key(document_id)
+    _find(document_id, body.base_version)
+    request = body.model_dump()
+    request["base_version"] = str(body.base_version)
+    try:
+        prepared = reader_client.chat_prepare(request)
+    except reader_client.ChatRejected as exc:
+        # Câu báo do giao diện chọn theo mã (AI Engineer viết, PO/BA duyệt). `items` chỉ là ô, số ô, không có giá trị.
+        return _problem(422, exc.code, _INVALID, items=exc.items)
+    except reader_client.ReaderUnavailable:
+        return _problem(503, "READER_UNAVAILABLE", _BUSY)
+    preview_id, item = chat.PREVIEWS.put(key, body.base_version, prepared)
+    return {
+        "preview_id": preview_id,
+        "prompt": prepared["prompt"],
+        "prompt_sha256": item.prompt_sha256,
+        "masked": prepared["masked"],
+        "cell_count": prepared["cell_count"],
+        "region_cells": prepared["region_cells"],
+        "estimated_cost_usd": prepared["estimated_cost_usd"],
+        "expires_in": chat.PREVIEW_SECONDS,
+        "chat_test_settings": chat.load_settings().is_test,
+    }
+
+
+def _record(item: chat.Preview, at, status: str, reason: str | None, cost: float, plan: dict | None = None, llm: dict | None = None) -> None:
+    prepared = item.prepared
+    db.add_chat_call({
+        "document_id": item.document_id, "at": at, "vn_day": chat.vn_day(at), "status": status, "reason": reason,
+        "cells_sent": prepared["cell_count"], "masked_groups": len(prepared["masked"]),
+        "ops": len(plan["ops"]) if plan else 0,
+        "rejected_codes": [str(r.get("reason"))[:40] for r in plan["rejected_ops"]] if plan else [],
+        "input_tokens": (llm or {}).get("input_tokens"), "output_tokens": (llm or {}).get("output_tokens"),
+        "estimated_cost_usd": prepared["estimated_cost_usd"] or 0.0, "cost_usd": cost,
+    })
+
+
+@app.post("/api/chat/{preview_id}/send")
+def chat_send(preview_id: str):
+    """Bước 2: kiểm trần, gửi đúng bản đã xem cho llm, rồi reader chạy 7 cổng trên kết quả. Lưu số đếm, không lưu nội dung."""
+    item = chat.PREVIEWS.take(preview_id[:64])
+    if item is None:
+        return _chat_problem(404, "CHAT_PREVIEW_EXPIRED")
+    prepared = item.prepared
+    settings = chat.load_settings()
+    at = settings.now()
+    estimated = prepared["estimated_cost_usd"]
+    try:
+        chat.TURNS.start(item.document_id, estimated, db.chat_spent(chat.vn_day(at)), settings)
+    except chat.BudgetRefused as exc:
+        return _chat_problem(_CHAT_STATUS[exc.code], exc.code)
+    try:
+        try:
+            out = llm_client.call(prepared["system"], prepared["prompt"], prepared["response_schema"], prepared["schema_name"], prepared["max_output_tokens"])
+        except llm_client.LlmFailed as exc:
+            _record(item, at, "model_error", exc.code, chat.cost_of_failure(exc.code, estimated))
+            return _chat_problem(502, exc.code, "CHAT_MODEL")
+        # LlmCall của vmai không có reasoning_tokens, prompt_sha256 (extra=forbid).
+        llm_call = {"purpose": "chat_edit", "provider": "openai", "model": out["model"] or "gpt-6-luna", "request_id": out["request_id"],
+                    "input_tokens": out["input_tokens"], "output_tokens": out["output_tokens"], "latency_ms": out["latency_ms"]}
+        try:
+            plan = reader_client.chat_check(prepared["context"], out["text"], llm_call, prepared["masked"])
+        except (reader_client.ChatRejected, reader_client.ReaderUnavailable):
+            _record(item, at, "check_failed", "CHAT_CHECK_FAILED", estimated, llm=out)
+            return _problem(503, "READER_UNAVAILABLE", _BUSY)
+        cost = (plan.get("llm_call") or {}).get("cost_usd")
+        cost = float(cost) if isinstance(cost, (int, float)) and not isinstance(cost, bool) else float(estimated)
+        _record(item, at, str(plan.get("status"))[:20], plan.get("reason"), cost, plan, out)
+    finally:
+        chat.TURNS.finish(item.document_id)
+    return {"plan": plan, "base_version": item.base_version, "prompt_sha256": item.prompt_sha256, "cost_usd": cost,
+            "chat_test_settings": settings.is_test}

@@ -70,6 +70,29 @@ MIGRATIONS = [
     );
     CREATE INDEX fill_batch_document ON fill_batch (document_id, status);
     """,
+    # Lát 2 khung chat (Q135). chat_call: mỗi lượt gọi model một dòng, KHÔNG có câu gõ, giá trị ô, payload hay câu trả lời.
+    # `at` theo đồng hồ của api (đồng hồ thử được), `vn_day` là ngày giờ Việt Nam để tính trần ngày.
+    # cell_edit.by_ai: ô do AI sửa qua khung chat rồi người dùng bấm Lưu (lịch sử bản ghi rõ, Q135).
+    """
+    CREATE TABLE chat_call (
+        call_id bigserial PRIMARY KEY,
+        document_id uuid NOT NULL REFERENCES document(document_id),
+        at timestamptz NOT NULL,
+        vn_day date NOT NULL,
+        status text NOT NULL,
+        reason text,
+        cells_sent integer NOT NULL,
+        masked_groups integer NOT NULL,
+        ops integer NOT NULL DEFAULT 0,
+        rejected_codes text[] NOT NULL DEFAULT '{}',
+        input_tokens integer,
+        output_tokens integer,
+        estimated_cost_usd double precision NOT NULL,
+        cost_usd double precision NOT NULL
+    );
+    CREATE INDEX chat_call_day ON chat_call (vn_day);
+    ALTER TABLE cell_edit ADD COLUMN by_ai boolean NOT NULL DEFAULT false;
+    """,
 ]
 
 
@@ -135,8 +158,8 @@ def add_version(document_id: uuid.UUID, base_version: int, sha: str, size: int, 
         conn.execute("INSERT INTO document_version (document_id, version, sha256, size, meta, author, summary, restored_from) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                      (document_id, version, sha, size, json.dumps(meta, ensure_ascii=False), author, summary, restored_from))
         for e in edits:
-            conn.execute("INSERT INTO cell_edit (document_id, version, sheet, cell, value, formula, author) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                         (document_id, version, e["sheet"], e["cell"], json.dumps(e.get("value")), e.get("formula"), author))
+            conn.execute("INSERT INTO cell_edit (document_id, version, sheet, cell, value, formula, author, by_ai) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                         (document_id, version, e["sheet"], e["cell"], json.dumps(e.get("value")), e.get("formula"), author, bool(e.get("by_ai"))))
         return conn.execute(_SELECT + " WHERE d.document_id = %s AND v.version = %s", (document_id, version)).fetchone()
 
 
@@ -323,3 +346,17 @@ def apply_batch(batch_id: uuid.UUID, document_id: uuid.UUID, base_version: int, 
         status = "open" if any(d.get("state") == "pending" for d in decisions.values()) else "done"
         conn.execute("UPDATE fill_batch SET decisions = %s, status = %s WHERE batch_id = %s", (json.dumps(decisions), status, batch_id))
         return version_row
+
+
+def chat_spent(day) -> float:
+    """Tiền đã dùng trong một ngày giờ Việt Nam (theo bảng giá, không phải hóa đơn)."""
+    with _connect() as conn:
+        return float(conn.execute("SELECT coalesce(sum(cost_usd), 0) AS s FROM chat_call WHERE vn_day = %s", (day,)).fetchone()["s"])
+
+
+def add_chat_call(row: dict) -> None:
+    """Một lượt gọi. Chỉ số đếm và mã, không có nội dung."""
+    cols = ("document_id", "at", "vn_day", "status", "reason", "cells_sent", "masked_groups", "ops", "rejected_codes",
+            "input_tokens", "output_tokens", "estimated_cost_usd", "cost_usd")
+    with _connect() as conn:
+        conn.execute(f"INSERT INTO chat_call ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))})", tuple(row[c] for c in cols))

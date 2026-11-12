@@ -7,6 +7,9 @@ Cách trả lời chọn theo dấu trong prompt, để test đi qua cả nhữn
 - FAKE:garbage     trả 200 nhưng thân không phải JSON, có lặp header.
 - FAKE:refusal     model từ chối.
 - FAKE:slow        chờ quá hạn của llm.
+- FAKE:edit        model đề xuất B10 = 5.62 (có trong câu) và H10 = 7 (không có trong câu: cổng phải bỏ).
+- FAKE:costly      trả lời hợp lệ nhưng báo nhiều token (để thử tiền theo bảng giá).
+Mặc định: model hỏi lại (status ask).
 GET /seen trả SHA-256 của header Authorization lần gần nhất, để test biết key thật sự đã đi tới đây (không trả chính header).
 """
 from __future__ import annotations
@@ -56,6 +59,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif "FAKE:refusal" in prompt:
             self._send(200, json.dumps({"id": "r", "status": "completed", "model": "gpt-6-luna",
                                         "output": [{"type": "message", "content": [{"type": "refusal", "refusal": f"no {auth}"}]}]}).encode())
+        elif "FAKE:edit" in prompt:
+            ops = [{"op": "set_value", "cell": "B10", "type": "number", "value": "5.62", "formula": None},
+                   {"op": "set_value", "cell": "H10", "type": "number", "value": "7", "formula": None}]
+            self._send(200, json.dumps(ok_body(json.dumps({"status": "edit", "unsupported": None, "message": "Đã sửa.", "ops": ops}))).encode())
+        elif "FAKE:costly" in prompt:
+            body = ok_body(json.dumps({"status": "ask", "unsupported": None, "message": "Ô nào?", "ops": []}))
+            body["usage"] = {"input_tokens": 50000, "output_tokens": 6000}
+            self._send(200, json.dumps(body).encode())
         elif "FAKE:slow" in prompt:
             time.sleep(40)
             self._send(200, json.dumps(ok_body("{}")).encode())

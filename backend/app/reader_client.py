@@ -136,3 +136,60 @@ def read(data: bytes, filename: str) -> dict:
 
 def write(data: bytes, filename: str, edits: list[dict], document_uuid: str) -> tuple[dict, bytes | None]:
     return _run(data, {"kind": "write", "filename": filename, "edits": edits, "document_uuid": document_uuid})
+
+
+# Lát 2 (Q135): việc chat chỉ có JSON, không có file. Kết quả nhỏ (vùng tối đa 3.000 ô).
+MAX_CHAT_OUTPUT_BYTES = 4 * 1024 * 1024
+
+
+def _json_job(job: dict) -> dict:
+    job_id = uuid.uuid4().hex
+    job_file, out = SPOOL_DIR / f"{job_id}.job", SPOOL_DIR / f"{job_id}.out.json"
+    _write_atomic(job_file, json.dumps(job, ensure_ascii=False).encode("utf8"))
+    deadline = time.monotonic() + READER_TIMEOUT_SECONDS
+    try:
+        while not out.exists():
+            if time.monotonic() > deadline:
+                raise ReaderUnavailable
+            time.sleep(POLL_SECONDS)
+        if out.stat().st_size > MAX_CHAT_OUTPUT_BYTES:
+            raise ReaderUnavailable
+        raw = json.loads(out.read_text(encoding="utf8"))
+        if not isinstance(raw, dict) or not isinstance(raw.get("ok"), bool):
+            raise ReaderUnavailable
+        return raw
+    except ValueError as exc:
+        raise ReaderUnavailable from exc
+    finally:
+        for path in (job_file, out):
+            path.unlink(missing_ok=True)
+
+
+class ChatRejected(Exception):
+    """vmai từ chối đầu vào (ChatInputError) hoặc không kiểm được. Chỉ có mã và danh sách ngắn, không có nội dung ô."""
+
+    def __init__(self, code: str, items: list[str]):
+        super().__init__(code)
+        self.code, self.items = code, items
+
+
+def _code(raw: dict, default: str) -> str:
+    code = raw.get("code")
+    return code if isinstance(code, str) and code.startswith("CHAT_") and len(code) <= 40 else default
+
+
+def chat_prepare(request: dict) -> dict:
+    """ChatPrepared dạng dict. Lỗi đầu vào: ChatRejected."""
+    raw = _json_job({"kind": "chat_prepare", "request": request})
+    if raw["ok"] and isinstance(raw.get("prepared"), dict):
+        return raw["prepared"]
+    items = raw.get("items") if isinstance(raw.get("items"), list) else []
+    raise ChatRejected(_code(raw, "CHAT_BAD_INPUT"), [str(i)[:40] for i in items][:20])
+
+
+def chat_check(context: dict, raw_text: str, llm_call: dict, masked: list) -> dict:
+    """ChatEditPlan dạng dict."""
+    raw = _json_job({"kind": "chat_check", "context": context, "raw_text": raw_text, "llm_call": llm_call, "masked": masked})
+    if raw["ok"] and isinstance(raw.get("plan"), dict):
+        return raw["plan"]
+    raise ChatRejected(_code(raw, "CHAT_CHECK_FAILED"), [])

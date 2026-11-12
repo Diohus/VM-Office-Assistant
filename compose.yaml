@@ -40,6 +40,11 @@ services:
       secrets: [machine_ca]
     environment:
       DATABASE_URL: postgresql://vm:${POSTGRES_PASSWORD:?Cần đặt POSTGRES_PASSWORD}@db:5432/vm
+      # Trần chi phí khung chat (Q135) và đồng hồ thử. Để trống là mặc định 0,02 USD/lượt, 1 USD/ngày, đồng hồ thật.
+      # Chỉ đổi trên bản thử: CHAT_MAX_USD_PER_DAY=0.001 sh tools/dev/up.sh (acceptance_lat2.md mục 0a).
+      CHAT_MAX_USD_PER_TURN: ${CHAT_MAX_USD_PER_TURN:-}
+      CHAT_MAX_USD_PER_DAY: ${CHAT_MAX_USD_PER_DAY:-}
+      CHAT_TEST_NOW: ${CHAT_TEST_NOW:-}
     volumes: ["store:/store", "spool:/spool", "lospool:/lospool"]
     networks: [internal, llm_in]
     depends_on: [db, reader, llm]
