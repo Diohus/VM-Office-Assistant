@@ -100,6 +100,16 @@ const [download] = await Promise.all([page.waitForEvent('download'), page.click(
 const dlPath = path.join(OUT, 'xuat.xlsx');
 await download.saveAs(dlPath);
 res.download = { name: download.suggestedFilename(), sha256: crypto.createHash('sha256').update(fs.readFileSync(dlPath)).digest('hex') };
+// N9 (R-1015): PDF của biểu mẫu QC trống. Trước đây lưới tính SD dòng 40 ra 0 (Excel để trống) nên PDF bị từ chối.
+res.blank_pdf = { sd_B40: await page.evaluate(() => window.vmGrid.value('KQ_QC_Thang', 'B40')) };
+await page.click('.sidebar .side-btn:has-text("Xuất")');
+const [blankPdf] = await Promise.all([
+  page.waitForEvent('download', { timeout: 120000 }).catch(() => null),
+  page.click('.dialog-actions button:has-text("Tải PDF")'),
+]);
+res.blank_pdf.downloaded = blankPdf !== null;
+res.blank_pdf.name = blankPdf?.suggestedFilename() ?? null;
+res.blank_pdf.error = await page.$eval('[data-notice=open-error] .notice-text', (e) => e.textContent).catch(() => null);
 
 // Biểu mẫu đã điền.
 const dd = await inspect('GIA-QC-01_da_dien.xlsx', path.join(FIX, 'GIA-QC-01_da_dien.xlsx'));
@@ -117,6 +127,8 @@ kho.display_narrow = await page.evaluate(() => Object.fromEntries(['C5', 'C6', '
 kho.values_narrow = await page.evaluate(() => Object.fromEntries(['C5', 'C15'].map((a) => [a, window.vmGrid.value('HamTinh', a)])));
 kho.display_all = await page.evaluate(() => window.vmGrid.allDisplay());
 await inspect('GIA-NGUON_2026-09.xlsx', path.join(FIX, 'GIA-NGUON_2026-09.xlsx'));
+// N9: hàm thống kê trên vùng ít số; số Excel đã lưu là đáp án (tools/excel_check/make_stat_empty.py).
+await inspect('GIA-X20_thong_ke_vung_it_so.xlsx', path.join(FIX, 'GIA-X20_thong_ke_vung_it_so.xlsx'));
 await inspect('GIA-X18_ham_mang.xlsx', path.join(FIX, 'GIA-X18_ham_mang.xlsx'));
 await inspect('x18_canary.xlsx', process.env.VM_CANARY_FILE);
 const x18b = await inspect('GIA-X18b_lien_ket_ngoai.xlsx', path.join(FIX, 'GIA-X18b_lien_ket_ngoai.xlsx'));

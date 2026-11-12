@@ -159,3 +159,16 @@ def test_bo_cuc_1366(run):
     assert 44 <= lay["topbar_h"] <= 52 and 68 <= lay["sidebar_w"] <= 76
     assert lay["grid_share"] > 0.6
     assert lay["sidebar_labels"] == ["Mở", "Lưu", "Xuất", "Điền từ file", "Phiên bản"]  # lát 1 thêm Điền từ file (Q133)
+
+
+def test_n9_ham_thong_ke_vung_it_so_khop_excel(run):
+    # R-1015: STDEV, VAR (và S, A) vùng không có số; MINA, MAXA vùng có ô trống. Đáp án là số Excel thật đã lưu.
+    r = run["files"]["GIA-X20_thong_ke_vung_it_so.xlsx"]
+    assert r["formulas"] >= 240 and r["problems"] == []
+    assert r["mismatches"] == []
+
+
+def test_n9_pdf_bieu_mau_qc_trong_xuat_duoc(run):
+    p = run["blank_pdf"]
+    assert p["sd_B40"] in ("", None), "SD của cột chưa có số phải trống như Excel, không phải 0"
+    assert p["error"] is None and p["downloaded"] is True and p["name"] == "GIA-QC-01_mau_xuat.pdf"

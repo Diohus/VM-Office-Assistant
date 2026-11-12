@@ -1,4 +1,4 @@
-// Nơi duy nhất được import Univer. Chỉ dùng gói Apache-2.0, không có gói Pro nào.
+// Nơi duy nhất được import Univer (cùng formulaFixes.js, chỉ file này dùng). Chỉ dùng gói Apache-2.0, không có gói Pro nào.
 import { createUniver, IUndoRedoService, LocaleType, mergeLocales } from '@univerjs/presets';
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core';
 import coreVi from '@univerjs/preset-sheets-core/locales/vi-VN';
@@ -16,6 +16,7 @@ import './univerOverrides.css';
 import { parseTypedNumber } from './typedNumber.js';
 import { NUMFMT_LOCALE, usesOtherDecimal } from '../numberFormat.js';
 import { cellsFromHtml, cellsFromText, interpretTable } from './pastedTable.js';
+import { FORMULA_FIXES } from './formulaFixes.js';
 
 const HA = { left: 1, center: 2, right: 3 };
 const VA = { top: 1, center: 2, bottom: 3 };
@@ -250,7 +251,8 @@ export function createGrid(container, model, { readOnly = false, onAmbiguousNumb
         contextMenu: false,
         formulaBar: true,
         footer: { sheetBar: true, statisticBar: false, menus: false, zoomSlider: false, addSheetButtonConfig: { show: false } },
-        formula: { initialFormulaComputing: 0 }, // tự tính lại, không dựa vào giá trị đã lưu
+        // tự tính lại, không dựa vào giá trị đã lưu; vài hàm thống kê được sửa cho giống Excel (N9, formulaFixes.js)
+        formula: { initialFormulaComputing: 0, function: FORMULA_FIXES },
       }),
       UniverSheetsConditionalFormattingPreset(),
       UniverSheetsDataValidationPreset(),
