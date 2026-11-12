@@ -1,27 +1,22 @@
-"""Sinh fixture file .xls có mật khẩu giả, để kiểm app phân biệt được với .xls thường. Chạy: python make_xls_password.py"""
+"""Sinh fixture file .xls có mật khẩu giả, để kiểm app phân biệt được với .xls thường. Chạy: python make_xls_password.py
+
+R-1016: sinh như clean_fixture_paths.py (thư mục trung tính, RemovePersonalInformation), để không có tên người trong phần mã hóa.
+"""
 from __future__ import annotations
 
-import pathlib
-import shutil
 import sys
 
+from clean_fixture_paths import FIX, XL_XLS, save_with_password
 from excel import excel
 
-FIX = pathlib.Path(__file__).resolve().parents[2] / "fixtures" / "templates"
-PASSWORD = "matkhau-gia"
-XLS_FORMAT = 56
+NAME = "GIA-X19_xls_mat_khau.xls"
 
 
 def main() -> int:
     with excel() as xl:
-        wb, err = xl.open(xl.work.copy_in(FIX / "GIA-QC-01_da_dien.xlsx", "goc.xlsx"))
-        if err:
-            raise RuntimeError(err)
-        saved = xl.work.path / "ra.xls"
-        wb.SaveAs(str(saved), XLS_FORMAT, PASSWORD)
-        wb.Close(False)
-        shutil.copyfile(saved, FIX / "GIA-X19_xls_mat_khau.xls")
-    print("Đã sinh GIA-X19_xls_mat_khau.xls")
+        data = save_with_password(xl, (FIX / "GIA-QC-01_da_dien.xlsx").read_bytes(), NAME, XL_XLS)
+    (FIX / NAME).write_bytes(data)
+    print(f"Đã sinh {NAME}")
     return 0
 
 

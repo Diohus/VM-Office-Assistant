@@ -88,6 +88,16 @@ def test_chi_bieu_mau_qc_mau_moi_dien_duoc_bao_truoc_khi_doc():
     assert status == 422 and body["code"] == "FILL_TEMPLATE_UNSUPPORTED" and "chỉ điền được biểu mẫu QC mẫu" in body["message"]
 
 
+def test_bieu_mau_qc_ban_truoc_khi_go_ten_van_dien_duoc():
+    # R-1016: bản đã push (còn tên ở thông tin file) cùng nội dung, Owner đang dùng nó để thử, nên vẫn phải điền được.
+    old = subprocess.run(["git", "show", "e481ecf:fixtures/templates/GIA-QC-01_mau.xlsx"], capture_output=True, check=True,
+                         cwd=FIX.parents[1]).stdout
+    status, doc = upload(old, "GIA-QC-01_mau.xlsx")
+    assert status == 201 and doc["fill_supported"] is True
+    status, _, body = add_source(doc, FIX / "GIA-NGUON_2026-09.xlsx")
+    assert status == 201, body
+
+
 def test_1_6_nguon_hong_qua_cong_dau_vao():
     doc = qc_doc()
     status, _, body = add_source(doc, FIX / "GIA-X19_hong.xlsx")

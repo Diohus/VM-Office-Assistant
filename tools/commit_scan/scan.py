@@ -15,9 +15,17 @@ import subprocess
 import sys
 import zipfile
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import people_meta  # noqa: E402
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 ZIP_SUFFIXES = {".xlsx", ".xlsm", ".docx", ".pptx", ".zip"}
 _GENERATED_DIRS = {".local", ".venv", "node_modules", "__pycache__", ".pytest_cache", "out", "generated", "dist"}
+# R-1016: file Office trong commit phải không có tên người ở phần thông tin file (tác giả, người sửa cuối...).
+OFFICE_SUFFIXES = {".xlsx", ".xlsm", ".docx", ".pptx", ".xls", ".doc"}
+# File có mật khẩu: một phần thông tin file nằm trong gói mã hóa, không đọc được. Chỉ cho phép file do công cụ sinh lại với
+# RemovePersonalInformation (tools/excel_check/clean_fixture_paths.py, make_xls_password.py), công cụ đã mở lại bằng Excel kiểm tác giả rỗng.
+ENCRYPTED_OK = {"fixtures/templates/GIA-X19_co_mat_khau.xlsx", "fixtures/templates/GIA-X19_xls_mat_khau.xls"}
 # Các file này chứa mẫu để quét hoặc để lọc, không phải đường dẫn thật. Thêm vào đây phải đọc từng dòng trước.
 TEXT_ALLOW = {"tools/commit_scan/scan.py", "tests/integration/test_commit_scan.py", "tools/excel_check/make_external_link.py", "vmai/tests/test_core.py"}
 
@@ -60,9 +68,20 @@ def scan_bytes(data: bytes, extra_terms: list[bytes] | None = None) -> list[str]
     return sorted(set(found))
 
 
+def scan_people(data: bytes, name: str) -> list[tuple[str, str]]:
+    """Tên người trong thông tin file Office. Chỉ báo vị trí, không báo giá trị."""
+    if pathlib.PurePath(name).suffix.lower() not in OFFICE_SUFFIXES:
+        return []
+    try:
+        hidden = [] if people_meta.kind(data) != "ole_ma_hoa" or name in ENCRYPTED_OK else [("", "thong_tin_file_ma_hoa")]
+        return hidden + [(where, "ten_trong_thong_tin_file") for where, value in people_meta.people(data) if value not in people_meta.ALLOWED]
+    except Exception:  # noqa: BLE001 - file lạ không đọc được thì báo, không bỏ qua
+        return [("", "khong_doc_duoc_thong_tin_file")]
+
+
 def scan_file(data: bytes, name: str, extra_terms: list[bytes] | None = None) -> list[tuple[str, str]]:
     """Trả [(phần trong file, loại phát hiện)]."""
-    out: list[tuple[str, str]] = []
+    out: list[tuple[str, str]] = scan_people(data, name)
     if pathlib.PurePath(name).suffix.lower() in ZIP_SUFFIXES and data[:4] == b"PK\x03\x04":
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
@@ -71,7 +90,7 @@ def scan_file(data: bytes, name: str, extra_terms: list[bytes] | None = None) ->
             return out
         except zipfile.BadZipFile:
             pass  # file cố tình hỏng: quét thẳng byte
-    return [("", kind) for kind in scan_bytes(data, extra_terms)]
+    return out + [("", kind) for kind in scan_bytes(data, extra_terms)]
 
 
 def commit_files() -> list[str]:

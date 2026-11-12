@@ -136,7 +136,7 @@ def _public(row: dict) -> dict:
 def _first_flags(row: dict) -> dict:
     first = _first_sha(row["document_id"])
     # fill_supported: lát 1 chỉ điền biểu mẫu QC mẫu (Q133, PM 11/11). So SHA bản tải lên đầu tiên.
-    return {"written": row["sha256"] != first, "fill_supported": first == fill.QC_TEMPLATE_SHA256}
+    return {"written": row["sha256"] != first, "fill_supported": first in fill.QC_TEMPLATE_SHA256S}
 
 
 def _first_sha(document_id: uuid.UUID) -> str:
@@ -338,7 +338,7 @@ class ApplyRequest(BaseModel):
 
 
 def _fill_supported(key: uuid.UUID) -> bool:
-    return _first_sha(key) == fill.QC_TEMPLATE_SHA256
+    return _first_sha(key) in fill.QC_TEMPLATE_SHA256S
 
 
 def _batch_key(batch_id: str) -> uuid.UUID:

@@ -2,7 +2,7 @@
 
 Toàn bộ file trong thư mục này là dữ liệu giả do đội tự tạo để thử phần mềm, không dùng cho chuyên môn. Mọi tên người, khoa, mã lô đều là giả. Mô tả theo `docs/product/qc_form_spec.md`.
 
-Sinh lại bằng `spikes/editor/gen_fixtures.py` và `run_x19.py`, `run_lo.py`. Các file được Excel thật lưu lại để XML giống file thực tế. Excel ghi đường dẫn máy vào `xl/workbook.xml`, nên sau khi sinh phải chạy `tools/excel_check/clean_fixture_paths.py`; test `test_commit_scan.py` sẽ trượt nếu quên. File vượt giới hạn sinh bằng `tools/fixtures/make_limit_files.py`, nằm ở `fixtures/generated/`, ngoài git.
+Sinh lại bằng `spikes/editor/gen_fixtures.py` và `run_x19.py`, `run_lo.py`. Các file được Excel thật lưu lại để XML giống file thực tế. Excel ghi đường dẫn máy vào `xl/workbook.xml`, nên sau khi sinh phải chạy `tools/excel_check/clean_fixture_paths.py`; test `test_commit_scan.py` sẽ trượt nếu quên. Excel, Word cũng ghi tên người dùng Office vào thông tin file (tác giả, người sửa cuối); công cụ đó gỡ luôn phần này và sinh lại hai file có mật khẩu (R-1016). File vượt giới hạn sinh bằng `tools/fixtures/make_limit_files.py`, nằm ở `fixtures/generated/`, ngoài git.
 
 | File | Dùng để |
 |---|---|
@@ -19,6 +19,7 @@ Sinh lại bằng `spikes/editor/gen_fixtures.py` và `run_x19.py`, `run_lo.py`.
 | `GIA-X19_khong_co_vba.xlsm` | X19: đuôi `.xlsm`, **không có VBA thật** |
 | `GIA-X19_hong.xlsx` | X19: file bị cắt ngang, không mở được |
 | `GIA-X19_sheet_khoa.xlsx` | Sheet có khóa, mật khẩu giả `khoa-gia` |
+| `GIA-X20_thong_ke_vung_it_so.xlsx` | N9 (R-1015): 41 hàm thống kê (STDEV, VAR, MINA, MEDIAN...) trên vùng rỗng, 1 số, 2 số, chỉ chữ, số lẫn chữ, số âm. Số đã lưu do Excel thật tính, là đáp án để so lưới. Sinh bằng `tools/excel_check/make_stat_empty.py` |
 | `nguon_lat1/` | 9 file nguồn giả cho lát 1 nối AI (Q133), dùng với `GIA-QC-01_mau.xlsx`: X02 (tên xét nghiệm chưa khai), X02a (tên đã khai), X03, X04, X07, X10, X13, X17, người chạy tên giả. AI Engineer sinh bằng `fixtures/eval/generate_lat1_sources.py`, seed cố định; mô tả từng ca ở `nguon_lat1/README.md` |
 
 `GIA-KHO-02_kho.xlsx` và `~$GIA-KHO-02_kho.xlsx` là bản lỗi cũ, bị một tiến trình Excel ẩn giữ khóa. Xóa khi tiến trình đó đã tắt. Đừng dùng bản này: tên sheet `Quy1` trùng dạng địa chỉ ô.

@@ -14,7 +14,11 @@ MAX_ITEMS = 200
 MAX_ITEM_CHARS = 120
 SPEC_ID = "GIA-QC-01"
 # SHA-256 của fixtures/templates/GIA-QC-01_mau.xlsx. Lát 1 chỉ điền biểu mẫu này (PM, 11/11). Test so với file thật.
-QC_TEMPLATE_SHA256 = "77df92dd69beb4a4d63b633ab7ab288e5a95decf524315e16f682b4c892eec8f"
+# R-1016: bản đã gỡ tên người ở thông tin file (đầu) và bản trước đó (đã push, Owner đang dùng để thử): cùng nội dung, khác docProps.
+QC_TEMPLATE_SHA256S = frozenset({
+    "7b9c58ad94b2be68eeac74ce4591ccb6a34570a38802772644441c203fb7c35e",
+    "77df92dd69beb4a4d63b633ab7ab288e5a95decf524315e16f682b4c892eec8f",
+})
 MAX_CHANGES = 5000
 COLORS_ALLOWED = {"yellow", "red"}
 
