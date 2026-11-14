@@ -27,7 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _console import utf8  # noqa: E402
 from _env import load_key  # noqa: E402
-from run_chat_gates import CASES, ROOT, request_from_xlsx  # noqa: E402
+from run_chat_gates import CASES, ROOT, apply_case, request_from_xlsx  # noqa: E402
 
 from vmai.chat import ChatInputError, check_chat, prepare_chat, to_llm_request  # noqa: E402
 from vmai.contract import LlmCall  # noqa: E402
@@ -82,6 +82,7 @@ def main() -> int:
     parser.add_argument("--confirm-network", action="store_true", help="Cho phép gọi dịch vụ ngoài, tốn phí. Chỉ dữ liệu giả")
     parser.add_argument("--runs", type=int, default=RUNS)
     parser.add_argument("--cases", default="", help="Chỉ chạy các ca này, ví dụ C20 hoặc C05,C20")
+    parser.add_argument("--max-usd", type=float, default=MAX_TOTAL_USD, help="Trần tổng của lần chạy này, không vượt 0,30")
     args = parser.parse_args()
 
     spec = json.loads(CASES.read_text(encoding="utf-8"))
@@ -97,8 +98,9 @@ def main() -> int:
         return 1
 
     prepared_by_case, estimate = {}, 0.0
+    spec["cases"] = [c for c in spec["cases"] if "source" not in c]  # ca dùng file khác chưa có bản đã tính lại: chỉ tầng cổng
     for case in spec["cases"]:
-        req = request_from_xlsx(model_file, spec["active_sheet"], spec["region"], spec["extra_sheets"], case["message"])
+        req = apply_case(spec, case, request_from_xlsx(model_file, spec["active_sheet"], spec["region"], spec["extra_sheets"], case["message"]))
         try:
             prepared = prepare_chat(req)
         except ChatInputError as err:
@@ -117,8 +119,9 @@ def main() -> int:
     print(f"Kế hoạch: {len(spec['cases'])} ca x {args.runs} lượt = {calls} lần gọi. "
           f"Chi phí xấu nhất ước tính {estimate:.3f} USD (trần {MAX_TOTAL_USD}).")
     if estimate > MAX_TOTAL_USD:
-        print("Ước tính xấu nhất vượt trần tổng. Dừng.")
-        return 1
+        # Mức xấu nhất coi mỗi lượt ra đủ max_output_tokens; thực tế thấp hơn nhiều (mốc C 12/11: 0,039 USD cho 69 lần gọi).
+        # Trần vẫn cứng lúc chạy: BudgetedProvider kiểm "đã tiêu + xấu nhất của lần gọi này" trước mỗi lần gọi, vượt thì dừng.
+        print(f"Cảnh báo: ước tính xấu nhất vượt trần {MAX_TOTAL_USD} USD. Lần chạy sẽ dừng khi chạm trần thật.")
     if not args.confirm_network:
         print("Chưa có --confirm-network: không gọi mạng.")
         return 0
@@ -131,7 +134,8 @@ def main() -> int:
         print("Không có key trong biến môi trường hoặc .env. Dừng.")
         return 1
     price = profile.budget.price
-    profile = dataclasses.replace(profile, budget=Budget(max_tokens_per_run=1_000_000, max_usd_per_run=MAX_TOTAL_USD, price=price))
+    cap = min(args.max_usd, MAX_TOTAL_USD)
+    profile = dataclasses.replace(profile, budget=Budget(max_tokens_per_run=1_000_000, max_usd_per_run=cap, price=price))
     provider = create_provider(profile)
 
     rows, totals, stopped = [], Counter(), None
@@ -163,7 +167,8 @@ def main() -> int:
             totals["out"] += response.output_tokens or 0
             totals["reasoning"] += response.reasoning_tokens or 0
             totals["usd"] += plan.llm_call.cost_usd or 0
-            row.update(verdict=verdict, status=plan.status, applied=notes,
+            # Câu nhắn của model đã qua _clean_model_message (bỏ URL, email, cụm giống tên), trên dữ liệu giả: để đọc lý do hỏi lại.
+            row.update(verdict=verdict, status=plan.status, applied=notes, model_message=plan.model_message,
                        rejected=sorted(r.reason for r in plan.rejected_ops), latency_ms=call.latency_ms,
                        input_tokens=response.input_tokens, output_tokens=response.output_tokens)
             rows.append(row)

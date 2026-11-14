@@ -62,6 +62,16 @@ def build() -> dict:
         "actions": {code: action for code, action in sorted(_sentences(texts, "Làm gì").items())},
         "actions_lat1": dict(sorted(_sentences(texts, "Làm gì ở lát 1").items())),
         "texts_lat1": {code: s for code, s in sorted(_sentences(texts, "Câu hiện ở lát 1").items()) if s},
+        "chat_texts": _chat_texts(sentences, _sentences(texts, "Làm gì")),
+    }
+
+
+def _chat_texts(sentences: dict[str, str], actions: dict[str, str]) -> dict[str, str]:
+    """Khung chat (Q135): mỗi mã CHAT_* một câu cho giao diện, ghép "Câu hiện" với "Làm gì" nếu có."""
+    return {
+        code: " ".join(part for part in (sentences[code], actions.get(code, "")) if part)
+        for code in sorted(sentences)
+        if code.startswith("CHAT_") and sentences[code]
     }
 
 

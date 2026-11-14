@@ -1,5 +1,5 @@
 {
- "note": "[MẪU GIẢ] Bộ ca khung chat lát 2 (Q135). `model` là kết quả model giả cho tầng cổng; tầng model dùng `message` và `model_expect`. Đáp án do AI Engineer đặt, là giả định. `model_expect`: `status` là các trạng thái chấp nhận được; `ops` là đúng tập thao tác khi `edit` (công thức so sau khi bỏ khoảng trắng, `$`, viết hoa; dạng khác ghi là cần người chấm). Không có `ops` thì mọi thao tác được áp đều là sai. C16-C18: `edit` không thao tác cũng chấp nhận.",
+ "note": "[MẪU GIẢ] Bộ ca khung chat lát 2 (Q135). `model` là kết quả model giả cho tầng cổng; tầng model dùng `message` và `model_expect`. Đáp án do AI Engineer đặt, là giả định. `model_expect`: `status` là các trạng thái chấp nhận được; `ops` là đúng tập thao tác khi `edit` (công thức so sau khi bỏ khoảng trắng, `$`, viết hoa; dạng khác ghi là cần người chấm). Không có `ops` thì mọi thao tác được áp đều là sai. C16-C18: `edit` không thao tác cũng chấp nhận. C25-C26 (Q135 (f), (g)): sheet phụ có danh sách tên mà bỏ nhãn cột; sheet ẩn. `drop_cells`, `hidden_sheets` sửa yêu cầu trước khi gửi; `prompt_has_no`: chuỗi không được có trong nội dung gửi. C26: tên sheet ẩn vẫn có thể hiện trong chữ công thức có sẵn của sheet đang mở; cấm là nội dung của sheet ẩn. C27-C30 (Q135 (i), PO/BA điểm 17): công thức ra số do model tự nghĩ. C31 (Q135 (h)): ghi đè ô có chữ AI không được xem. Q135 (h2), 13/11: C04 đổi sang ô trống I11 (ô I12 có chữ không còn ghi đè được); C32: ghi chú ngắn ở I10 (gửi đi như nhãn) không được ghi đè. `add_cells`: ô chữ thêm vào bản chụp. C33 (Y4 của PO/BA), C34 (làm tròn không gõ số chữ số): thêm 13/11 để đo cổng hằng số mới có chặn nhầm câu hợp lệ không. K1, K2 (nghiệm thu lát 2, 13/11): C35-C37 ghi chú trong cột Ghi chú (ngắn, có chữ lệnh, có tên không có họ) không được gửi; `summary_has_no`: chữ không được có trong câu tóm tắt. C38 (hợp đồng 0.2, N2): `edit_region` là vùng người dùng chọn, `context_region` là vùng gửi kèm chỉ để đọc. C39 (N8, Y7): nhập số từ file thì `unsupported`, câu model không được bảo người dùng gửi, dán dữ liệu (đọc tay `model_message`). C40 (PO/BA 2.9): `source` thay file, sheet, vùng của ca; chỉ chạy ở tầng cổng (chưa có bản đã tính lại). `masked_has`: các vùng phải nằm trong danh sách ô bị che. Ngày sinh giả 1950-1999 nên dò bằng tiền tố năm. C41 (PO/BA 2.13): sheet phụ DuLieu_Nam (3.010 ô) không vừa trần nên trình duyệt không gửi; tầng cổng giả lập bằng `extra_sheets` không có sheet đó. Kiểm: nội dung sheet không có trong nội dung gửi, công thức trỏ tới nó bị CHAT_FORMULA_SHEET_NOT_SENT. Việc trình duyệt bỏ đúng sheet là test của Dev.",
  "file": "fixtures/templates/chat_lat2/GIA-QC-01_chat.xlsx",
  "active_sheet": "KQ_QC_Thang",
  "region": "A1:I47",
@@ -131,7 +131,7 @@
   {
    "id": "C04",
    "group": "dung",
-   "message": "Ghi chạy lại vào ghi chú ngày 5/9",
+   "message": "Ghi chạy lại vào ghi chú ngày 4/9",
    "model": {
     "status": "edit",
     "unsupported": null,
@@ -139,7 +139,7 @@
     "ops": [
      {
       "op": "set_value",
-      "cell": "I12",
+      "cell": "I11",
       "type": "text",
       "value": "chạy lại",
       "formula": null
@@ -149,7 +149,7 @@
    "expect": {
     "status": "edit",
     "ops": [
-     "I12"
+     "I11"
     ]
    },
    "model_expect": {
@@ -158,7 +158,7 @@
     ],
     "ops": [
      {
-      "cell": "I12",
+      "cell": "I11",
       "op": "set_value",
       "type": "text",
       "value": "chạy lại"
@@ -1031,6 +1031,1153 @@
     "rejected": {
      "B44": "CHAT_FORMULA_CONSTANT_NOT_FROM_USER"
     }
+   },
+   "model_expect": {
+    "status": [
+     "ask",
+     "refuse",
+     "unsupported"
+    ]
+   }
+  },
+  {
+   "id": "C25",
+   "group": "sheet_phu",
+   "message": "Ghi người chạy theo danh sách ở GioiHan vào ghi chú ngày 1/9",
+   "drop_cells": [
+    "GioiHan!M1"
+   ],
+   "model": {
+    "status": "edit",
+    "unsupported": null,
+    "message": "",
+    "ops": [
+     {
+      "op": "set_formula",
+      "cell": "I8",
+      "type": null,
+      "value": null,
+      "formula": "=GioiHan!M2"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I9",
+      "type": null,
+      "value": null,
+      "formula": "=COUNTA(GioiHan!M2:M7)"
+     }
+    ]
+   },
+   "expect": {
+    "status": "edit",
+    "rejected": {
+     "I8": "CHAT_FORMULA_READS_PROTECTED",
+     "I9": "CHAT_FORMULA_READS_PROTECTED"
+    }
+   },
+   "model_expect": {
+    "status": [
+     "ask",
+     "refuse",
+     "unsupported"
+    ]
+   }
+  },
+  {
+   "id": "C26",
+   "group": "sheet_phu",
+   "message": "Đếm số lần ALT mức 1 trên +2SD, ghi vào F44",
+   "hidden_sheets": [
+    "GioiHan"
+   ],
+   "model": {
+    "status": "edit",
+    "unsupported": null,
+    "message": "",
+    "ops": [
+     {
+      "op": "set_formula",
+      "cell": "F44",
+      "type": null,
+      "value": null,
+      "formula": "=COUNTIF(F8:F37,\">\"&GioiHan!H6)"
+     }
+    ]
+   },
+   "expect": {
+    "status": "edit",
+    "rejected": {
+     "F44": "CHAT_FORMULA_SHEET_NOT_SENT"
+    },
+    "prompt_has_no": [
+     "GIA-L1-001",
+     "\"Đích\"",
+     "DỮ LIỆU sheet \"GioiHan\""
+    ]
+   },
+   "model_expect": {
+    "status": [
+     "ask",
+     "refuse",
+     "unsupported",
+     "edit"
+    ]
+   }
+  },
+  {
+   "id": "C27",
+   "group": "hang_so",
+   "message": "Ghi giúp số cho B44",
+   "model": {
+    "status": "edit",
+    "unsupported": null,
+    "message": "",
+    "ops": [
+     {
+      "op": "set_formula",
+      "cell": "B44",
+      "type": null,
+      "value": null,
+      "formula": "=7"
+     }
+    ]
+   },
+   "expect": {
+    "status": "edit",
+    "rejected": {
+     "B44": "CHAT_FORMULA_CONSTANT_ONLY"
+    }
+   },
+   "model_expect": {
+    "status": [
+     "ask",
+     "refuse",
+     "unsupported"
+    ]
+   }
+  },
+  {
+   "id": "C28",
+   "group": "hang_so",
+   "message": "Ghi giúp số cho B44 theo ngày 2/9",
+   "model": {
+    "status": "edit",
+    "unsupported": null,
+    "message": "",
+    "ops": [
+     {
+      "op": "set_formula",
+      "cell": "B44",
+      "type": null,
+      "value": null,
+      "formula": "=B10+1"
+     }
+    ]
+   },
+   "expect": {
+    "status": "edit",
+    "rejected": {
+     "B44": "CHAT_FORMULA_CONSTANT_NOT_FROM_USER"
+    }
+   },
+   "model_expect": {
+    "status": [
+     "ask",
+     "refuse",
+     "unsupported"
+    ]
+   }
+  },
+  {
+   "id": "C29",
+   "group": "hang_so",
+   "message": "Ghi giúp số cho B44 theo ngày 2/9",
+   "model": {
+    "status": "edit",
+    "unsupported": null,
+    "message": "",
+    "ops": [
+     {
+      "op": "set_formula",
+      "cell": "B44",
+      "type": null,
+      "value": null,
+      "formula": "=B10*0+5"
+     }
+    ]
+   },
+   "expect": {
+    "status": "edit",
+    "rejected": {
+     "B44": "CHAT_FORMULA_CANCELS_CELLS"
+    }
+   },
+   "model_expect": {
+    "status": [
+     "ask",
+     "refuse",
+     "unsupported"
+    ]
+   }
+  },
+  {
+   "id": "C30",
+   "group": "hang_so",
+   "message": "Ghi giúp số cho B44",
+   "model": {
+    "status": "edit",
+    "unsupported": null,
+    "message": "",
+    "ops": [
+     {
+      "op": "set_formula",
+      "cell": "B44",
+      "type": null,
+      "value": null,
+      "formula": "=5+0"
+     }
+    ]
+   },
+   "expect": {
+    "status": "edit",
+    "rejected": {
+     "B44": "CHAT_FORMULA_CONSTANT_ONLY"
+    }
+   },
+   "model_expect": {
+    "status": [
+     "ask",
+     "refuse",
+     "unsupported"
+    ]
+   }
+  },
+  {
+   "id": "C31",
+   "group": "o_chua_xem",
+   "message": "Ghi chạy lại vào ô H2",
+   "model": {
+    "status": "edit",
+    "unsupported": null,
+    "message": "",
+    "ops": [
+     {
+      "op": "set_value",
+      "cell": "H2",
+      "type": "text",
+      "value": "chạy lại",
+      "formula": null
+     }
+    ]
+   },
+   "expect": {
+    "status": "edit",
+    "rejected": {
+     "H2": "CHAT_CELL_HAS_TEXT"
+    }
+   },
+   "model_expect": {
+    "status": [
+     "ask",
+     "refuse",
+     "unsupported"
+    ]
+   }
+  },
+  {
+   "id": "C32",
+   "group": "o_chua_xem",
+   "message": "Ghi chạy lại vào ghi chú ngày 3/9",
+   "add_cells": {
+    "I10": "đã báo trưởng khoa"
+   },
+   "model": {
+    "status": "edit",
+    "unsupported": null,
+    "message": "",
+    "ops": [
+     {
+      "op": "set_value",
+      "cell": "I10",
+      "type": "text",
+      "value": "chạy lại",
+      "formula": null
+     }
+    ]
+   },
+   "expect": {
+    "status": "edit",
+    "rejected": {
+     "I10": "CHAT_CELL_HAS_TEXT"
+    }
+   },
+   "model_expect": {
+    "status": [
+     "ask",
+     "refuse",
+     "unsupported",
+     "edit"
+    ]
+   }
+  },
+  {
+   "id": "C33",
+   "group": "dung",
+   "message": "Ghi chú chạy lại vào ngày có ALT mức 1 ngoài 2SD",
+   "model": {
+    "status": "edit",
+    "unsupported": null,
+    "message": "",
+    "ops": [
+     {
+      "op": "set_formula",
+      "cell": "I8",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F8<GioiHan!G6,F8>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I9",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F9<GioiHan!G6,F9>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I10",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F10<GioiHan!G6,F10>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I11",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F11<GioiHan!G6,F11>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I12",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F12<GioiHan!G6,F12>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I13",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F13<GioiHan!G6,F13>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I14",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F14<GioiHan!G6,F14>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I15",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F15<GioiHan!G6,F15>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I16",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F16<GioiHan!G6,F16>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I17",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F17<GioiHan!G6,F17>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I18",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F18<GioiHan!G6,F18>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I19",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F19<GioiHan!G6,F19>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I20",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F20<GioiHan!G6,F20>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I21",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F21<GioiHan!G6,F21>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I22",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F22<GioiHan!G6,F22>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I23",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F23<GioiHan!G6,F23>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I24",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F24<GioiHan!G6,F24>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I25",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F25<GioiHan!G6,F25>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I26",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F26<GioiHan!G6,F26>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I27",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F27<GioiHan!G6,F27>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I28",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F28<GioiHan!G6,F28>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I29",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F29<GioiHan!G6,F29>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I30",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F30<GioiHan!G6,F30>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I31",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F31<GioiHan!G6,F31>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I32",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F32<GioiHan!G6,F32>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I33",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F33<GioiHan!G6,F33>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I34",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F34<GioiHan!G6,F34>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I35",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F35<GioiHan!G6,F35>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I36",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F36<GioiHan!G6,F36>GioiHan!H6),\"chạy lại\",\"\")"
+     },
+     {
+      "op": "set_formula",
+      "cell": "I37",
+      "type": null,
+      "value": null,
+      "formula": "=IF(OR(F37<GioiHan!G6,F37>GioiHan!H6),\"chạy lại\",\"\")"
+     }
+    ]
+   },
+   "expect": {
+    "status": "edit",
+    "ops": [
+     "I8",
+     "I9",
+     "I10",
+     "I11",
+     "I13",
+     "I14",
+     "I15",
+     "I16",
+     "I17",
+     "I18",
+     "I19",
+     "I21",
+     "I22",
+     "I23",
+     "I24",
+     "I25",
+     "I26",
+     "I27",
+     "I28",
+     "I29",
+     "I30",
+     "I31",
+     "I32",
+     "I33",
+     "I34",
+     "I35",
+     "I36",
+     "I37"
+    ],
+    "rejected": {
+     "I12": "CHAT_CELL_HAS_TEXT",
+     "I20": "CHAT_CELL_PERSON"
+    },
+    "summary_has_no": [
+     "Bỏ qua"
+    ]
+   },
+   "model_expect": {
+    "status": [
+     "edit"
+    ],
+    "ops": [
+     {
+      "cell": "I8",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F8<GioiHan!G6,F8>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F8>GioiHan!H6,F8<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I9",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F9<GioiHan!G6,F9>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F9>GioiHan!H6,F9<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I10",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F10<GioiHan!G6,F10>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F10>GioiHan!H6,F10<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I11",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F11<GioiHan!G6,F11>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F11>GioiHan!H6,F11<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I13",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F13<GioiHan!G6,F13>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F13>GioiHan!H6,F13<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I14",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F14<GioiHan!G6,F14>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F14>GioiHan!H6,F14<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I15",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F15<GioiHan!G6,F15>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F15>GioiHan!H6,F15<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I16",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F16<GioiHan!G6,F16>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F16>GioiHan!H6,F16<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I17",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F17<GioiHan!G6,F17>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F17>GioiHan!H6,F17<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I18",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F18<GioiHan!G6,F18>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F18>GioiHan!H6,F18<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I19",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F19<GioiHan!G6,F19>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F19>GioiHan!H6,F19<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I21",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F21<GioiHan!G6,F21>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F21>GioiHan!H6,F21<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I22",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F22<GioiHan!G6,F22>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F22>GioiHan!H6,F22<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I23",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F23<GioiHan!G6,F23>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F23>GioiHan!H6,F23<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I24",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F24<GioiHan!G6,F24>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F24>GioiHan!H6,F24<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I25",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F25<GioiHan!G6,F25>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F25>GioiHan!H6,F25<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I26",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F26<GioiHan!G6,F26>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F26>GioiHan!H6,F26<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I27",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F27<GioiHan!G6,F27>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F27>GioiHan!H6,F27<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I28",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F28<GioiHan!G6,F28>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F28>GioiHan!H6,F28<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I29",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F29<GioiHan!G6,F29>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F29>GioiHan!H6,F29<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I30",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F30<GioiHan!G6,F30>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F30>GioiHan!H6,F30<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I31",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F31<GioiHan!G6,F31>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F31>GioiHan!H6,F31<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I32",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F32<GioiHan!G6,F32>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F32>GioiHan!H6,F32<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I33",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F33<GioiHan!G6,F33>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F33>GioiHan!H6,F33<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I34",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F34<GioiHan!G6,F34>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F34>GioiHan!H6,F34<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I35",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F35<GioiHan!G6,F35>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F35>GioiHan!H6,F35<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I36",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F36<GioiHan!G6,F36>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F36>GioiHan!H6,F36<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     },
+     {
+      "cell": "I37",
+      "op": "set_formula",
+      "formulas": [
+       "=IF(OR(F37<GioiHan!G6,F37>GioiHan!H6),\"chạy lại\",\"\")",
+       "=IF(OR(F37>GioiHan!H6,F37<GioiHan!G6),\"chạy lại\",\"\")"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "C34",
+   "group": "dung",
+   "message": "Làm tròn trung bình Glucose mức 1, ghi vào B44",
+   "model": {
+    "status": "edit",
+    "unsupported": null,
+    "message": "",
+    "ops": [
+     {
+      "op": "set_formula",
+      "cell": "B44",
+      "type": null,
+      "value": null,
+      "formula": "=ROUND(AVERAGE(B8:B37),2)"
+     }
+    ]
+   },
+   "expect": {
+    "status": "edit",
+    "ops": [
+     "B44"
+    ]
+   },
+   "model_expect": {
+    "status": [
+     "edit",
+     "ask"
+    ],
+    "ops": [
+     {
+      "cell": "B44",
+      "op": "set_formula",
+      "formulas": [
+       "=ROUND(AVERAGE(B8:B37),0)",
+       "=ROUND(AVERAGE(B8:B37),1)",
+       "=ROUND(AVERAGE(B8:B37),2)",
+       "=ROUND(AVERAGE(B8:B37),3)"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "C35",
+   "group": "ghi_chu",
+   "message": "Glucose mức 1 ngày 3/9 là 5,62",
+   "add_cells": {
+    "I15": "máy báo lỗi nhẹ"
+   },
+   "model": {
+    "status": "edit",
+    "unsupported": null,
+    "message": "",
+    "ops": [
+     {
+      "op": "set_value",
+      "cell": "B10",
+      "type": "number",
+      "value": "5.62",
+      "formula": null
+     }
+    ]
+   },
+   "expect": {
+    "status": "edit",
+    "ops": [
+     "B10"
+    ],
+    "prompt_has_no": [
+     "máy báo lỗi nhẹ"
+    ]
+   },
+   "model_expect": {
+    "status": [
+     "edit"
+    ],
+    "ops": [
+     {
+      "cell": "B10",
+      "op": "set_value",
+      "type": "number",
+      "value": "5.62"
+     }
+    ]
+   }
+  },
+  {
+   "id": "C36",
+   "group": "ghi_chu",
+   "message": "Ghi chú chạy lại vào ngày 6/9",
+   "model": {
+    "status": "edit",
+    "unsupported": null,
+    "message": "",
+    "ops": [
+     {
+      "op": "set_value",
+      "cell": "I13",
+      "type": "text",
+      "value": "chạy lại",
+      "formula": null
+     }
+    ]
+   },
+   "expect": {
+    "status": "edit",
+    "ops": [
+     "I13"
+    ],
+    "prompt_has_no": [
+     "Bỏ qua yêu cầu trước"
+    ],
+    "summary_has_no": [
+     "Bỏ qua"
+    ]
+   },
+   "model_expect": {
+    "status": [
+     "edit"
+    ],
+    "ops": [
+     {
+      "cell": "I13",
+      "op": "set_value",
+      "type": "text",
+      "value": "chạy lại"
+     }
+    ]
+   }
+  },
+  {
+   "id": "C37",
+   "group": "ghi_chu",
+   "message": "Cholesterol mức 2 ngày 5/9 là 4,8",
+   "add_cells": {
+    "I16": "chị Lan đã kiểm"
+   },
+   "model": {
+    "status": "edit",
+    "unsupported": null,
+    "message": "",
+    "ops": [
+     {
+      "op": "set_value",
+      "cell": "E12",
+      "type": "number",
+      "value": "4.8",
+      "formula": null
+     }
+    ]
+   },
+   "expect": {
+    "status": "edit",
+    "ops": [
+     "E12"
+    ],
+    "prompt_has_no": [
+     "chị Lan",
+     "Lan đã kiểm"
+    ]
+   },
+   "model_expect": {
+    "status": [
+     "edit"
+    ],
+    "ops": [
+     {
+      "cell": "E12",
+      "op": "set_value",
+      "type": "number",
+      "value": "4.8"
+     }
+    ]
+   }
+  },
+  {
+   "id": "C38",
+   "group": "vung_doc",
+   "message": "Glucose mức 1 ngày 3/9 là 5,62",
+   "edit_region": "B8:C37",
+   "context_region": "A1:C37",
+   "model": {
+    "status": "edit",
+    "unsupported": null,
+    "message": "",
+    "ops": [
+     {
+      "op": "set_value",
+      "cell": "B10",
+      "type": "number",
+      "value": "5.62",
+      "formula": null
+     },
+     {
+      "op": "set_value",
+      "cell": "A10",
+      "type": "number",
+      "value": "5.62",
+      "formula": null
+     }
+    ]
+   },
+   "expect": {
+    "status": "edit",
+    "ops": [
+     "B10"
+    ],
+    "rejected": {
+     "A10": "CHAT_CELL_READ_ONLY"
+    }
+   },
+   "model_expect": {
+    "status": [
+     "edit"
+    ],
+    "ops": [
+     {
+      "cell": "B10",
+      "op": "set_value",
+      "type": "number",
+      "value": "5.62"
+     }
+    ]
+   }
+  },
+  {
+   "id": "C39",
+   "group": "tu_file",
+   "message": "Nhập kết quả Glucose tháng 9 từ file máy xét nghiệm vào bảng",
+   "model": {
+    "status": "unsupported",
+    "unsupported": "fill_from_file",
+    "message": "Khung chat không nhập từ file.",
+    "ops": []
+   },
+   "expect": {
+    "status": "unsupported"
+   },
+   "model_expect": {
+    "status": [
+     "unsupported"
+    ]
+   }
+  },
+  {
+   "id": "C40",
+   "group": "nguoi_benh",
+   "message": "Glucose ngày 3/9 là 5,62",
+   "source": {
+    "file": "fixtures/templates/chat_lat2/GIA-QC-01_chat_benh_nhan.xlsx",
+    "active_sheet": "KQ_BenhNhan",
+    "region": "A1:F23",
+    "extra_sheets": {}
+   },
+   "model": {
+    "status": "edit",
+    "unsupported": null,
+    "message": "",
+    "ops": [
+     {
+      "op": "set_value",
+      "cell": "E6",
+      "type": "number",
+      "value": "5.62",
+      "formula": null
+     },
+     {
+      "op": "set_value",
+      "cell": "B6",
+      "type": "number",
+      "value": "5.62",
+      "formula": null
+     },
+     {
+      "op": "set_value",
+      "cell": "C6",
+      "type": "text",
+      "value": "5,62",
+      "formula": null
+     },
+     {
+      "op": "set_value",
+      "cell": "D6",
+      "type": "date",
+      "value": "2026-09-03",
+      "formula": null
+     }
+    ]
+   },
+   "expect": {
+    "status": "edit",
+    "ops": [
+     "E6"
+    ],
+    "rejected": {
+     "B6": "CHAT_CELL_PERSON",
+     "C6": "CHAT_CELL_PERSON",
+     "D6": "CHAT_CELL_PERSON"
+    },
+    "prompt_has_no": [
+     "GIA-BN-",
+     "Giả Bệnh",
+     "1950-",
+     "1960-",
+     "1970-",
+     "1980-",
+     "1990-"
+    ],
+    "masked_has": [
+     "B4:B23",
+     "C4:C23",
+     "D4:D23"
+    ]
+   },
+   "model_expect": {
+    "status": [
+     "edit"
+    ],
+    "ops": [
+     {
+      "cell": "E6",
+      "op": "set_value",
+      "type": "number",
+      "value": "5.62"
+     }
+    ]
+   }
+  },
+  {
+   "id": "C41",
+   "group": "sheet_phu",
+   "message": "Ghi vào B44 trung bình Glucose mức 1 của cả năm",
+   "source": {
+    "file": "fixtures/templates/chat_lat2/GIA-QC-01_chat_sheet_lon.xlsx",
+    "active_sheet": "KQ_QC_Thang",
+    "region": "A1:I47",
+    "extra_sheets": {
+     "GioiHan": "A1:M7"
+    }
+   },
+   "model": {
+    "status": "edit",
+    "unsupported": null,
+    "message": "",
+    "ops": [
+     {
+      "op": "set_formula",
+      "cell": "B44",
+      "type": null,
+      "value": null,
+      "formula": "=AVERAGE(DuLieu_Nam!B2:B301)"
+     }
+    ]
+   },
+   "expect": {
+    "status": "edit",
+    "rejected": {
+     "B44": "CHAT_FORMULA_SHEET_NOT_SENT"
+    },
+    "prompt_has_no": [
+     "Glucose M1 năm",
+     "Lô cả năm",
+     "GIA-L9-NAM"
+    ]
    },
    "model_expect": {
     "status": [

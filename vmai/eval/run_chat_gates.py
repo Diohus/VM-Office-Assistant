@@ -18,7 +18,7 @@ import openpyxl
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _console import utf8  # noqa: E402
 
-from vmai.chat import ChatInputError, ChatRequest, check_chat, parse_range, prepare_chat, to_llm_request  # noqa: E402
+from vmai.chat import ChatInputError, ChatRequest, check_chat, parse_cell, parse_range, prepare_chat, to_llm_request  # noqa: E402
 from vmai.contract import LlmCall  # noqa: E402
 from vmai.llm.base import LLMResponse, Profile  # noqa: E402
 from vmai.llm.fake import FakeProvider  # noqa: E402
@@ -90,8 +90,49 @@ def _fake(output: dict) -> FakeProvider:
 
 
 def run_case(spec: dict, case: dict) -> dict:
-    req = request_from_xlsx(ROOT / spec["file"], spec["active_sheet"], spec["region"], spec["extra_sheets"], case["message"])
+    spec = {**spec, **case.get("source", {})}  # ca dùng file khác (2.9: cột người bệnh giả), chỉ ở tầng cổng
+    req = apply_case(spec, case, request_from_xlsx(ROOT / spec["file"], spec["active_sheet"], spec["region"],
+                                                    spec["extra_sheets"], case["message"]))
     expect, problems = case["expect"], []
+    return _run_prepared(spec, case, req, expect, problems)
+
+
+def apply_case(spec: dict, case: dict, req: dict) -> dict:
+    """Thay đổi riêng của ca (bỏ ô, sheet ẩn, thêm ô chữ). Tầng cổng và tầng model dùng chung, để hai tầng đo cùng một đầu vào."""
+    for sheet in req["sheets"]:
+        drop = {ref.split("!")[1] for ref in case.get("drop_cells", []) if ref.split("!")[0] == sheet["name"]}
+        sheet["cells"] = [c for c in sheet["cells"] if c["a1"] not in drop]
+        sheet["hidden"] = sheet["name"] in case.get("hidden_sheets", [])
+        if sheet["name"] == spec["active_sheet"]:
+            added = case.get("add_cells", {})  # ô chữ thêm vào bản chụp, như người dùng vừa gõ trên lưới
+            sheet["cells"] = [c for c in sheet["cells"] if c["a1"] not in added]
+            sheet["cells"] += [{"a1": a1, "t": "text", "v": text, "f": None} for a1, text in added.items()]
+            if "edit_region" in case:  # 0.2 (N2): người dùng chọn vùng; gửi kèm context_region chỉ để đọc
+                ctx = parse_range(case["context_region"])
+                sheet["cells"] = [c for c in sheet["cells"] if _in_range(c["a1"], ctx)]
+                sheet["merges"] = [m for m in sheet.get("merges", []) if _overlaps(parse_range(m), ctx)]
+                sheet["region"], sheet["context_region"] = case["edit_region"], case["context_region"]
+    return req
+
+
+def _col(n: int) -> str:
+    out = ""
+    while n:
+        n, rem = divmod(n - 1, 26)
+        out = chr(65 + rem) + out
+    return out
+
+
+def _in_range(a1: str, rng) -> bool:
+    row, col = parse_cell(a1)
+    return rng[0] <= row <= rng[2] and rng[1] <= col <= rng[3]
+
+
+def _overlaps(a, b) -> bool:
+    return not (a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1])
+
+
+def _run_prepared(spec: dict, case: dict, req: dict, expect: dict, problems: list) -> dict:
     provider = _fake(case["model"])
     try:
         prepared = prepare_chat(ChatRequest.model_validate(req))
@@ -101,9 +142,16 @@ def run_case(spec: dict, case: dict) -> dict:
         return {"id": case["id"], "group": case["group"], "leaks": 0, "problems": problems, "sent": False}
     if "prepare_error" in expect:
         problems.append("lọt: câu đáng lẽ không được gửi")
-    for bad in spec["never_send"]:
+    for bad in spec["never_send"] + expect.get("prompt_has_no", []):
         if bad in prepared.prompt or bad in prepared.system:
             problems.append(f"lọt: chuỗi cấm trong nội dung gửi: {bad}")
+    active_masked = {a for sh in prepared.context.sheets if sh.name == prepared.context.active_sheet for a in sh.masked}
+    for rng in expect.get("masked_has", []):  # vùng phải bị che (2.9: cột người bệnh)
+        r = parse_range(rng)
+        missing = [f"{_col(c)}{row}" for row in range(r[0], r[2] + 1) for c in range(r[1], r[3] + 1)
+                   if f"{_col(c)}{row}" not in active_masked]
+        if missing:
+            problems.append(f"lọt: ô không bị che: {missing[:3]}")
     response = provider.generate(to_llm_request(prepared))
     call = LlmCall(purpose="chat_edit", provider=response.provider, model=response.model,
                    input_tokens=response.input_tokens, output_tokens=response.output_tokens)
@@ -127,6 +175,9 @@ def run_case(spec: dict, case: dict) -> dict:
         problems.append(f"lệch: status {plan.status}, mong {expect['status']}")
     if (bad := expect.get("message_has_no")) and bad in plan.model_message:
         problems.append(f"lọt: câu model còn {bad}")
+    for bad in expect.get("summary_has_no", []):  # K2: chữ ô ghi chú không được thành nhãn tóm tắt
+        if any(bad in line.text for line in plan.summary):
+            problems.append(f"lọt: chữ ô trong câu tóm tắt: {bad}")
     if plan.status == "edit" and len(plan.summary) != len(plan.ops):
         problems.append("lệch: thiếu dòng tóm tắt")
     return {"id": case["id"], "group": case["group"], "leaks": sum(p.startswith("lọt") for p in problems),

@@ -6,6 +6,8 @@ Kết quả ở `fixtures/templates/chat_lat2/`:
 - `GIA-QC-01_chat.xlsx`: số giả 30 ngày, tên giả ở cột Người chạy (H), ô Phụ trách (E4), dưới ô ký (A47, F47);
   ô I12 có lệnh giả ngắn (Y10, được gửi đi như một nhãn), ô I20 có lệnh giả dài (không được gửi).
 - `GIA-QC-01_chat_lon.xlsx`: như trên, thêm sheet `NhatKy_Nam` 366 dòng x 10 cột (3.660 ô), mở sẵn sheet này (mục 7).
+- `GIA-QC-01_chat_benh_nhan.xlsx`: dòng 2.9, sheet `KQ_BenhNhan` có cột thông tin người bệnh giả; docProps trống.
+- `GIA-QC-01_chat_sheet_lon.xlsx`: dòng 2.13, sheet phụ `DuLieu_Nam` 3.010 ô, I44 trỏ tới nó; docProps trống.
 openpyxl bỏ định dạng có điều kiện, kiểm dữ liệu, biểu đồ của file gốc; số và công thức giữ nguyên.
 """
 from __future__ import annotations
@@ -52,6 +54,61 @@ def _chat_workbook(rng: random.Random):
     return wb
 
 
+# Dòng 2.9 (PO/BA): cột thông tin người bệnh giả. Mọi mã, tên, ngày sinh đều giả, có chữ "GIA"/"Giả Bệnh" để dò.
+PATIENT_SURNAMES = ["Nguyễn", "Trần", "Lê", "Phạm", "Vũ", "Đỗ", "Bùi", "Đặng"]
+PATIENT_HEADERS = ["Ngày", "Mã BN", "Họ tên người bệnh", "Ngày sinh", "Glucose (mmol/L)", "Ghi chú"]
+
+
+def _save_blank_props(wb, name: str) -> None:
+    """docProps trống (PM 13/11): không người tạo, không người sửa, không tiêu đề."""
+    props = wb.properties
+    props.creator = ""
+    props.lastModifiedBy = None
+    props.title = props.subject = props.description = props.keywords = props.category = None
+    wb.save(OUT / name)
+
+
+def _patient_workbook(rng: random.Random):
+    wb = openpyxl.load_workbook(BASE)
+    ws = wb.create_sheet("KQ_BenhNhan", 0)
+    ws["A1"] = "[MẪU GIẢ] KẾT QUẢ ĐƯỜNG MÁU THEO NGƯỜI BỆNH"
+    for col, header in enumerate(PATIENT_HEADERS, start=1):
+        ws.cell(3, col, header)
+    for i in range(20):
+        row = 4 + i
+        ws.cell(row, 1, dt.date(2026, 9, 1) + dt.timedelta(days=i)).number_format = "dd/mm/yyyy"
+        ws.cell(row, 2, f"GIA-BN-{i + 1:04d}")
+        ws.cell(row, 3, f"{PATIENT_SURNAMES[i % len(PATIENT_SURNAMES)]} Giả Bệnh {chr(65 + i)}")
+        ws.cell(row, 4, dt.date(1950 + rng.randrange(50), 1 + rng.randrange(12), 1 + rng.randrange(28))).number_format = "dd/mm/yyyy"
+        ws.cell(row, 5, round(rng.gauss(5.5, 0.6), 2))
+    ws["F8"] = "lấy mẫu lại"
+    ws["F12"] = "báo Đỗ Giả Bệnh E tái khám"  # ghi chú có tên người bệnh giả
+    wb.active = 0
+    for sheet in wb.worksheets:
+        sheet.sheet_view.tabSelected = sheet.title == "KQ_BenhNhan"
+    return wb
+
+
+# Dòng 2.13 (PO/BA): sheet phụ không vừa trần 3.000 ô. KQ_QC_Thang A1:I47 (423 ô) + GioiHan A1:M7 (91 ô)
+# + DuLieu_Nam A1:J301 (3.010 ô) vượt trần, nên DuLieu_Nam không được gửi dù I44 có công thức trỏ tới nó (Q135 (f)).
+BIG_SIDE_HEADERS = ["Ngày", "Glucose M1 năm", "Glucose M2 năm", "Chol M1 năm", "Chol M2 năm", "ALT M1 năm",
+                    "ALT M2 năm", "Nhiệt độ tủ năm", "Độ ẩm năm", "Lô cả năm"]
+
+
+def _big_side_sheet_workbook(rng: random.Random):
+    wb = _chat_workbook(random.Random(SEED))
+    side = wb.create_sheet("DuLieu_Nam")
+    side.append(BIG_SIDE_HEADERS)
+    day = dt.date(2025, 9, 1)
+    for i in range(300):
+        side.append([day + dt.timedelta(days=i), *(round(rng.gauss(t, s), 2) for t, s in TARGETS.values()),
+                     round(rng.gauss(4, 0.5), 1), round(rng.gauss(55, 5)), "GIA-L9-NAM"])
+        side.cell(i + 2, 1).number_format = "dd/mm/yyyy"
+    wb["KQ_QC_Thang"]["I44"] = "=COUNT(DuLieu_Nam!B2:B301)"
+    wb.active = 0
+    return wb
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     _save(_chat_workbook(random.Random(SEED)), "GIA-QC-01_chat.xlsx")
@@ -67,13 +124,20 @@ def main() -> None:
         big.cell(i + 2, 1).number_format = "dd/mm/yyyy"
     wb.active = 0
     _save(wb, "GIA-QC-01_chat_lon.xlsx")
+
+    _save_blank_props(_patient_workbook(random.Random(SEED + 2)), "GIA-QC-01_chat_benh_nhan.xlsx")
+    _save_blank_props(_big_side_sheet_workbook(random.Random(SEED + 3)), "GIA-QC-01_chat_sheet_lon.xlsx")
     (OUT / "README.md").write_text(
         "# Biểu mẫu giả cho khung chat (lát 2)\n\n"
         "[MẪU GIẢ]. Sinh bằng `fixtures/eval/generate_chat_fixtures.py`, seed cố định. Không có đáp án ở đây.\n\n"
         "| File | Dùng cho |\n|---|---|\n"
         "| `GIA-QC-01_chat.xlsx` | Có số giả 30 ngày. Tên giả ở cột `Người chạy`, ô `Phụ trách`, dưới ô ký. "
         "Ô `I12` có lệnh giả ngắn (Y10), ô `I20` có lệnh giả dài |\n"
-        "| `GIA-QC-01_chat_lon.xlsx` | Như trên, mở sẵn sheet `NhatKy_Nam` 3.660 ô (mục 7, trên 3.000 ô) |\n\n"
+        "| `GIA-QC-01_chat_lon.xlsx` | Như trên, mở sẵn sheet `NhatKy_Nam` 3.660 ô (mục 7, trên 3.000 ô) |\n"
+        "| `GIA-QC-01_chat_benh_nhan.xlsx` | Dòng 2.9: mở sẵn sheet `KQ_BenhNhan` (A1:F23) có cột `Mã BN`, "
+        "`Họ tên người bệnh`, `Ngày sinh` giả, ghi chú có tên người bệnh giả. Thông tin file để trống |\n"
+        "| `GIA-QC-01_chat_sheet_lon.xlsx` | Dòng 2.13: như `GIA-QC-01_chat.xlsx`, thêm sheet `DuLieu_Nam` A1:J301 "
+        "(3.010 ô), ô `I44` có công thức trỏ tới sheet đó. Sheet chính cộng sheet phụ vượt 3.000 ô. Thông tin file để trống |\n\n"
         "File được lưu bằng openpyxl: định dạng có điều kiện, kiểm dữ liệu và biểu đồ của file gốc bị bỏ; ô công thức không có kết quả tính sẵn.\n",
         encoding="utf-8",
     )
