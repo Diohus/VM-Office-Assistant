@@ -122,3 +122,17 @@ export async function exportPdf(documentId, body) {
 export function exportUrl(documentId, version = null) {
   return `/api/documents/${documentId}/export${version ? `?version=${version}` : ''}`;
 }
+
+// Lát 2 (Q135), docs/engineering/chat_api.md. Lỗi giữ mã (ApiError.code): khung chat chọn câu theo mã từ chat_texts.
+export function chatPreview(documentId, body) {
+  return postJson(`/api/documents/${documentId}/chat/preview`, body);
+}
+
+export async function chatSend(previewId, signal) {
+  return (await call(`/api/chat/${encodeURIComponent(previewId)}/send`, { method: 'POST', signal })).json();
+}
+
+// Bản thử (trần hoặc đồng hồ khác mặc định): khung chat hiện nhãn "Bản thử".
+export async function chatHealth() {
+  return (await call('/api/health')).json();
+}

@@ -86,7 +86,11 @@ def check_budget(estimated: float | None, spent_today: float, reserved: float, s
 MAYBE_BILLED = {"CHAT_MODEL_TIMEOUT", "CHAT_MODEL_TRUNCATED", "CHAT_MODEL_FAILED", "CHAT_MODEL_UNAVAILABLE", "CHAT_MODEL_REFUSED"}
 
 
-def cost_of_failure(code: str, estimated: float) -> float:
+def cost_of_failure(code: str, estimated: float, not_sent: bool = False) -> float:
+    """Lỗi có thể bị tính tiền: ghi ước tính xấu nhất. Trừ khi llm báo chắc chắn chưa gửi gì (chưa mở được kết nối tới nhà
+    cung cấp, vd. egress không resolve hay không nối được): ghi 0, để trần ngày không bị trừ oan (PM 14/11)."""
+    if not_sent:
+        return 0.0
     return estimated if code in MAYBE_BILLED else 0.0
 
 
@@ -150,6 +154,12 @@ class Turns:
                 raise BudgetRefused("CHAT_BUSY")
             check_budget(estimated, spent_today, sum(self._busy.values()), settings)
             self._busy[document_id] = estimated
+
+    def peek(self, estimated: float | None, spent_today: float, settings: Settings) -> None:
+        """Kiểm trần ở bước xem trước (PO/BA lượt 2 ca 1a): báo trước khi người dùng đọc và bấm đồng ý. Không giữ chỗ tiền;
+        bước gửi vẫn kiểm lại bằng start(), vì giữa xem trước và gửi có thể có lượt khác tiêu tiền."""
+        with self._lock:
+            check_budget(estimated, spent_today, sum(self._busy.values()), settings)
 
     def finish(self, document_id: uuid.UUID) -> None:
         with self._lock:

@@ -158,7 +158,7 @@ def test_bo_cuc_1366(run):
     assert lay["page_scroll_x"] is False
     assert 44 <= lay["topbar_h"] <= 52 and 68 <= lay["sidebar_w"] <= 76
     assert lay["grid_share"] > 0.6
-    assert lay["sidebar_labels"] == ["Mở", "Lưu", "Xuất", "Điền từ file", "Phiên bản"]  # lát 1 thêm Điền từ file (Q133)
+    assert lay["sidebar_labels"] == ["Mở", "Lưu", "Xuất", "Điền từ file", "Chat AI", "Phiên bản"]  # lát 1 thêm Điền từ file (Q133), lát 2 Chat AI (Q135)
 
 
 def test_n9_ham_thong_ke_vung_it_so_khop_excel(run):

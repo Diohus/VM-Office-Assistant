@@ -24,6 +24,9 @@ const applyLabel = () => pg.textContent('[data-testid=fill-apply]');
 const state = () => pg.textContent('[data-testid=doc-state]');
 async function ready() {
   await pg.waitForFunction(() => window.vmGridReady, null, { timeout: 90000 });
+  // R-1021: mỗi lần mở file, lưới phải thật sự được vẽ (có canvas lớn trong .grid-host), không chỉ có mô hình bảng.
+  await pg.waitForFunction(() => [...document.querySelectorAll('.grid-host canvas')].some((c) => c.getBoundingClientRect().height > 100), null, { timeout: 15000 })
+    .catch(() => { throw new Error('lưới trắng: .grid-host không có canvas sau khi mở file (R-1021)'); });
   await pg.evaluate(() => window.vmGrid.settled());
   await sleep(300);
 }

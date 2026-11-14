@@ -17,6 +17,7 @@ import { parseTypedNumber } from './typedNumber.js';
 import { NUMFMT_LOCALE, usesOtherDecimal } from '../numberFormat.js';
 import { cellsFromHtml, cellsFromText, interpretTable } from './pastedTable.js';
 import { FORMULA_FIXES } from './formulaFixes.js';
+import { AI_MARK, MAX_REGION_CELLS, chatCell, opWrite, overwritesText, referencedSheets, sameAsSent } from '../chat/chatModel.js';
 
 const HA = { left: 1, center: 2, right: 3 };
 const VA = { top: 1, center: 2, bottom: 3 };
@@ -240,6 +241,8 @@ function editsShown(typed, shown) {
 }
 
 export function createGrid(container, model, { readOnly = false, onAmbiguousNumber, onDecimalSwapped, onHiddenDigits, onLockedCell, onPasted, onChange, onEditDone, onCalculating, onUndoRedo } = {}) {
+  // R-1021: không có chỗ vẽ thì Univer vẫn dựng bảng mà không báo gì (lưới trắng). Ném lỗi để app hiện câu báo.
+  if (!(container instanceof HTMLElement) || !container.isConnected) throw new Error('GRID_HOST_MISSING');
   const { univer, univerAPI } = createUniver({
     locale: LocaleType.VI_VN,
     locales: { [LocaleType.VI_VN]: mergeLocales(coreVi, cfVi, dvVi, drawVi) },
@@ -286,6 +289,88 @@ export function createGrid(container, model, { readOnly = false, onAmbiguousNumb
 
   const sheetIdByName = (name) => wb.getSheetByName(name)?.getSheetId();
   const rawValue = (snapshot, sheetId, r, c) => snapshot.sheets[sheetId]?.cellData?.[r]?.[c]?.v ?? null;
+
+  // ---- Khung chat lát 2 (Q135) ----
+  // Dấu "AI sửa" là nền ô, đặt trong cùng nhóm hoàn tác với giá trị: Hoàn tác trả cả hai. Lưu chỉ lấy giá trị và công thức
+  // (collectEdits) nên nền này không bao giờ vào file. aiMarks giữ nền gốc để trả lại khi người dùng tự sửa ô đó.
+  // "sheet!A1" -> { orig: nền gốc, wrote: {t, v, f} AI đã ghi }. Dấu tím đi theo giá trị: ô còn đúng giá trị AI ghi thì tím;
+  // người dùng sửa thành khác thì về nền gốc (3.5); Hoàn tác lần sửa đó thì tím lại. Lượt AI đặt nền bằng lệnh trong nhóm hoàn
+  // tác của lượt (Hoàn tác cả lượt bỏ cả nền); đối chiếu sau đó đặt nền bằng mutation, không tạo bước hoàn tác nào.
+  const aiMarks = new Map();
+  let chatTurns = 0;
+  const sameColor = (a, b) => String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
+  const cellRaw = (snap, ws, r, c) => {
+    const cell = snap.sheets[ws.getSheetId()]?.cellData?.[r]?.[c];
+    if (!cell) return { v: null };
+    const style = typeof cell.s === 'string' ? snap.styles?.[cell.s] : cell.s;
+    const f = cell.f || (cell.si ? ws.getRange(r, c).getFormula() : null) || null;
+    return { v: cell.v ?? null, f, pattern: style?.n?.pattern ?? null, display: ws.getRange(r, c).getDisplayValue() };
+  };
+  const regionCells = (snap, ws, range) => {
+    const cells = [];
+    const r0 = range.getRow(), c0 = range.getColumn();
+    for (let r = r0; r < r0 + range.getHeight(); r++) {
+      for (let c = c0; c < c0 + range.getWidth(); c++) {
+        const cell = chatCell(a1(r, c), cellRaw(snap, ws, r, c));
+        if (cell) cells.push(cell);
+      }
+    }
+    return cells;
+  };
+  const mergesIn = (ws, range) => {
+    const r1 = range.getRow(), c1 = range.getColumn(), r2 = r1 + range.getHeight() - 1, c2 = c1 + range.getWidth() - 1;
+    return ws.getMergedRanges().filter((m) => m.getRow() <= r2 && m.getRow() + m.getHeight() - 1 >= r1 && m.getColumn() <= c2 && m.getColumn() + m.getWidth() - 1 >= c1)
+      .map((m) => m.getA1Notation());
+  };
+  const area = (range) => range.getHeight() * range.getWidth();
+  // Vùng gửi luôn ghi dạng A1:I47. getA1Notation() của vùng chọn bằng tiêu đề cột, tiêu đề hàng hay góc trên trái trả "B:B",
+  // "3:3", "1:65": vmai không đọc được và từ chối cả lượt (O2, CHAT_BAD_INPUT).
+  const regionText = (range) => `${a1(range.getRow(), range.getColumn())}:${a1(range.getRow() + range.getHeight() - 1, range.getColumn() + range.getWidth() - 1)}`;
+  // Chọn cả cột, cả hàng hay cả sheet: chỉ lấy phần giao với vùng đang dùng, để "cả sheet" là bảng đang có, không phải mọi ô trống.
+  const usableRange = (ws, picked) => {
+    const data = ws.getDataRange();
+    let r0 = picked.getRow(), h = picked.getHeight(), c0 = picked.getColumn(), w = picked.getWidth();
+    if (![r0, h, c0, w].every(Number.isFinite)) return data;
+    if (r0 <= 0 && h >= ws.getMaxRows()) [r0, h] = [data.getRow(), data.getHeight()];
+    if (c0 <= 0 && w >= ws.getMaxColumns()) [c0, w] = [data.getColumn(), data.getWidth()];
+    return ws.getRange(Math.max(0, r0), Math.max(0, c0), Math.max(1, h), Math.max(1, w));
+  };
+  const sameWrite = (a, b) => Boolean(a && b) && (a.f ? a.f === b.f : !b.f && a.t === b.t && a.v === b.v);
+  const setBgQuiet = (ws, r, c, color) => {
+    const snap = wb.save();
+    const cell = snap.sheets[ws.getSheetId()]?.cellData?.[r]?.[c] ?? {};
+    const style = typeof cell.s === 'string' ? { ...(snap.styles?.[cell.s] ?? {}) } : { ...(cell.s ?? {}) };
+    if (color) style.bg = { rgb: color };
+    else delete style.bg;
+    univerAPI.executeCommand('sheet.mutation.set-range-values', { unitId: wb.getId(), subUnitId: ws.getSheetId(), cellValue: { [r]: { [c]: { s: style } } } });
+  };
+  // Lượt AI còn trên lưới hay đã bị Hoàn tác: nhìn giá trị. Chỉ đổi nền ô thuộc lượt đang có hiệu lực (giá trị khớp hoặc người dùng đã sửa đè).
+  // Sau mỗi lần Hoàn tác, Làm lại: đối chiếu lại dấu (đăng ký sau khi aiMarks đã có).
+  const markSub = undoRedo.undoRedoStatus$.subscribe(() => {
+    if (aiMarks.size) setTimeout(reconcileMarks, 0);
+  });
+  function reconcileMarks() {
+    if (disposed) return;
+    const snap = wb.save();
+    for (const [key, mark] of aiMarks) {
+      if (!mark.wrote) continue;
+      const cut = key.lastIndexOf('!');
+      const ws = wb.getSheetByName(key.slice(0, cut));
+      if (!ws) continue;
+      const range = ws.getRange(key.slice(cut + 1));
+      const r = range.getRow(), c = range.getColumn();
+      const now = chatCell(key.slice(cut + 1), cellRaw(snap, ws, r, c));
+      const purple = sameColor(range.getBackground(), AI_MARK);
+      const isAi = sameWrite(mark.wrote, now);
+      if (isAi && !purple && mark.userEdited) {
+        setBgQuiet(ws, r, c, AI_MARK);
+        mark.userEdited = false;
+      } else if (!isAi && purple) {
+        setBgQuiet(ws, r, c, mark.orig);
+        mark.userEdited = true;
+      }
+    }
+  }
 
   // Bộ tính chạy nền và có thể chạy nhiều lượt. Tính xong khi mọi ô công thức đều có kết quả,
   // hoặc số ô chưa có kết quả không giảm nữa (công thức thật sự ra rỗng thì phải dừng, không chờ mãi).
@@ -470,6 +555,8 @@ export function createGrid(container, model, { readOnly = false, onAmbiguousNumb
     if (lastTyped && parseTypedNumber(lastTyped.text).kind === 'number') undoBatch = undoRedo.beginUndoRedoGroup(wb.getId(), `typed-${++typedCount}`, 'replace');
   });
   univerAPI.addEvent(univerAPI.Event.SheetEditEnded, (p) => {
+    // Lát 2: Univer ghi giá trị gõ sau sự kiện này; đối chiếu dấu "AI sửa" ở lượt sau (3.5).
+    if (p.isConfirm && aiMarks.size) setTimeout(reconcileMarks, 0);
     // Gõ phím thẳng vào ô không qua sự kiện bắt đầu sửa, nên ô khóa phải được trả lại ở đây. Lưu vẫn bị backend từ chối.
     if (p.isConfirm && lockedAt(p.worksheet.getSheetName(), p.row, p.column)) {
       typedInEditor = false;
@@ -594,9 +681,150 @@ export function createGrid(container, model, { readOnly = false, onAmbiguousNumb
     return edits;
   }
 
+  // Bản chụp gửi cho AI (Q135 (f)): vùng chính là vùng đang chọn (nhiều ô) hoặc vùng đang dùng của sheet đang mở. Vùng chính
+  // vượt MAX_REGION_CELLS thì không dựng, trả { tooLarge: số ô }. Rồi thêm vùng đang dùng của sheet khác trong cùng file:
+  // sheet được công thức trong vùng chính tham chiếu đi trước, rồi các sheet còn lại. Không gửi sheet ẩn và sheet có biểu đồ
+  // (Q135 (g), `exclude` do App lấy từ các mục biểu đồ của tài liệu). Sheet nào làm tổng vượt trần thì không gửi; công thức
+  // tham chiếu sheet chưa gửi bị cổng của vmai chặn. Mọi sheet gửi kèm đều được che như vùng chính (vmai).
+  function chatSnapshot(exclude = []) {
+    const snap = wb.save();
+    const ws = wb.getActiveSheet();
+    const picked = ws.getSelection()?.getActiveRange();
+    // Chọn một ô gộp (ví dụ tiêu đề A1:I1) vẫn là chọn một ô, không phải chọn vùng.
+    const oneMerge = picked && ws.getMergedRanges().some((m) => m.getA1Notation() === picked.getA1Notation());
+    const chosen = picked && area(picked) > 1 && !oneMerge;
+    const range = chosen ? usableRange(ws, picked) : ws.getDataRange();
+    let total = area(range);
+    if (total > MAX_REGION_CELLS) return { tooLarge: total };
+    // ChatEditPlan 0.2 (N2): người dùng tự chọn vùng thì gửi kèm phần chỉ để đọc, từ góc trên trái vùng đang dùng tới góc dưới
+    // phải vùng chọn (dòng tiêu đề, cột Ngày), để AI biết dòng nào là ngày nào. AI chỉ được ghi trong vùng chọn (vmai chặn
+    // CHAT_CELL_READ_ONLY). Phần đọc kèm làm vượt trần ô thì bỏ, gửi như 0.1.
+    let read = range;
+    if (chosen) {
+      const data = ws.getDataRange();
+      const top = Math.min(data.getRow(), range.getRow()), left = Math.min(data.getColumn(), range.getColumn());
+      const bottom = range.getRow() + range.getHeight() - 1, right = range.getColumn() + range.getWidth() - 1;
+      if (top < range.getRow() || left < range.getColumn()) {
+        const ctx = ws.getRange(top, left, bottom - top + 1, right - left + 1);
+        if (area(ctx) <= MAX_REGION_CELLS) read = ctx;
+      }
+    }
+    total = area(read);
+    const cells = regionCells(snap, ws, read);
+    const main = { name: ws.getSheetName(), region: regionText(range), cells, merges: mergesIn(ws, read) };
+    if (read !== range) main.context_region = regionText(read);
+    const sheets = [main];
+    const names = wb.getSheets().map((x) => x.getSheetName());
+    const refs = [...new Set(cells.flatMap((c) => referencedSheets(c.f, names)))];
+    const banned = new Set(exclude);
+    const allowed = (name) => name !== ws.getSheetName() && !banned.has(name) && !wb.getSheetByName(name).isSheetHidden();
+    const order = [...new Set([...refs, ...names])].filter(allowed);
+    const skipped = [];
+    for (const name of order) {
+      const other = wb.getSheetByName(name);
+      const used = other.getDataRange();
+      const otherCells = regionCells(snap, other, used);
+      if (!otherCells.length) continue;
+      if (total + area(used) > MAX_REGION_CELLS) {
+        skipped.push(name);
+        continue;
+      }
+      total += area(used);
+      sheets.push({ name, region: regionText(used), cells: otherCells, merges: mergesIn(other, used) });
+    }
+    const sent = Object.fromEntries(cells.map((c) => [c.a1, c]));
+    return { request: { active_sheet: ws.getSheetName(), sheets }, sent, skipped };
+  }
+
+  // Áp một lượt: cả lượt là một bước hoàn tác (C5). Ô đã khác lúc gửi thì không áp (C11); ô khóa thì không áp.
+  // Ô đang có chữ thì không ghi đè, không xóa (Q135 (h2)).
+  // Trả { applied: [A1], changed: [A1], locked: [A1], hasText: [A1], turn } — turn dùng cho nút "Hoàn tác lượt này".
+  function applyChatOps(sheetName, ops, sent) {
+    const ws = wb.getSheetByName(sheetName);
+    const out = { applied: [], changed: [], locked: [], hasText: [], turn: null };
+    if (!ws) {
+      out.changed = ops.map((o) => o.cell);
+      return out;
+    }
+    const snap = wb.save();
+    const todo = [];
+    for (const op of ops) {
+      const range = ws.getRange(op.cell);
+      const r = range.getRow(), c = range.getColumn();
+      if (lockedAt(sheetName, r, c)) out.locked.push(op.cell);
+      else if (overwritesText(op, sent[op.cell] ?? null)) out.hasText.push(op.cell);
+      else if (!sameAsSent(sent[op.cell] ?? null, chatCell(op.cell, cellRaw(snap, ws, r, c)))) out.changed.push(op.cell);
+      else todo.push({ op, range });
+    }
+    if (!todo.length) return out;
+    endUndoBatch();
+    // 'append': gom đủ bước hoàn tác và làm lại của mọi lệnh trong lượt (giá trị và nền). 'replace' chỉ giữ lệnh đầu và cuối.
+    const group = undoRedo.beginUndoRedoGroup(wb.getId(), `chat-${++chatTurns}`, 'append');
+    try {
+      for (const { op, range } of todo) {
+        const key = `${sheetName}!${op.cell}`;
+        const orig = aiMarks.has(key) && sameColor(range.getBackground(), AI_MARK) ? aiMarks.get(key).orig : range.getBackground();
+        aiMarks.set(key, { orig, wrote: null, userEdited: false });
+        const w = opWrite(op);
+        if (w.kind === 'clear') range.clearContent();
+        else if (w.kind === 'formula') range.setFormula(w.formula);
+        else if (w.kind === 'text') range.setValue({ v: w.value, t: 1 }); // 1 = chuỗi: "=1+1" vẫn là chữ
+        else if (w.kind === 'date') {
+          range.setValue(w.value);
+          if (!/[dy]/i.test(patternOf(sheetName, range.getRow(), range.getColumn()) ?? '')) range.setNumberFormat?.('dd/mm/yyyy');
+        } else range.setValue(w.value);
+        range.setBackground(AI_MARK);
+        out.applied.push(op.cell);
+      }
+    } finally {
+      group.dispose();
+    }
+    out.turn = undoRedo.pitchTopUndoElement();
+    const after = wb.save();
+    for (const cell of out.applied) {
+      const range = ws.getRange(cell);
+      aiMarks.get(`${sheetName}!${cell}`).wrote = chatCell(cell, cellRaw(after, ws, range.getRow(), range.getColumn())) ?? { t: 'text', v: null, f: null };
+    }
+    scheduleRefresh();
+    return out;
+  }
+
+  // Ô đang mang dấu "AI sửa" (sau Hoàn tác, Làm lại, sửa tay). Dùng cho hộp Lưu và ai_cells.
+  function aiCells() {
+    const out = [];
+    for (const key of aiMarks.keys()) {
+      const cut = key.lastIndexOf('!');
+      const sheet = key.slice(0, cut), cell = key.slice(cut + 1);
+      const ws = wb.getSheetByName(sheet);
+      if (ws && sameColor(ws.getRange(cell).getBackground(), AI_MARK)) out.push({ sheet, cell });
+    }
+    return out;
+  }
+
   return {
     problems,
     collectEdits,
+    chatSnapshot,
+    applyChatOps,
+    aiCells,
+    // Lượt AI còn ở đầu ngăn hoàn tác: chưa có sửa nào khác sau nó.
+    isTopUndo: (turn) => Boolean(turn) && undoRedo.pitchTopUndoElement() === turn,
+    // Trạng thái một lượt AI cho nút "Hoàn tác lượt này": 'top' (bấm được), 'undone' (đã hoàn tác, nằm trong ngăn Làm lại),
+    // 'covered' (còn trên lưới, có sửa khác sau nó). Ngăn hoàn tác là trường protected của Univer (bản đã khóa trong lockfile);
+    // không đọc được thì đoán theo dấu tím: lượt còn ô tím của nó là 'covered', không còn là 'undone'.
+    // Cho test: ngăn hoàn tác của Univer còn đọc được không. Nâng bản Univer mà đổi tên trường thì test báo hỏng rõ ràng,
+    // thay vì turnState lặng lẽ chuyển sang đoán theo dấu tím (docs/engineering/run.md, mục Đổi thư viện).
+    undoStacksReadable: () => typeof undoRedo._undoStacks?.get === 'function' && typeof undoRedo._redoStacks?.get === 'function'
+      && Array.isArray(undoRedo._undoStacks.get(wb.getId())),
+    turnState(turn, sheet, cells) {
+      if (!turn) return 'covered';
+      if (undoRedo.pitchTopUndoElement() === turn) return 'top';
+      const id = wb.getId();
+      if (undoRedo._redoStacks?.get?.(id)?.includes(turn)) return 'undone';
+      if (undoRedo._undoStacks?.get?.(id)?.includes(turn)) return 'covered';
+      const marked = new Set(aiCells().filter((c) => c.sheet === sheet).map((c) => c.cell));
+      return (cells ?? []).some((c) => marked.has(c)) ? 'covered' : 'undone';
+    },
     isEditing: () => wb.isCellEditing(),
     // Xác nhận ô đang gõ dở. Trả false nếu ô vẫn đang mở, ví dụ số nhập nhằng đang chờ người dùng gõ lại.
     async commitEditing() {
@@ -646,6 +874,7 @@ export function createGrid(container, model, { readOnly = false, onAmbiguousNumb
       return rawValue(wb.save(), ws.getSheetId(), range.getRow(), range.getColumn());
     },
     display: (sheet, ref) => wb.getSheetByName(sheet).getRange(ref).getDisplayValue(),
+    background: (sheet, ref) => wb.getSheetByName(sheet).getRange(ref).getBackground(),
     allDisplay: () => model.sheets.flatMap((sh) => sh.cells.filter((c) => c.f || typeof c.v === 'number').map((c) => ({
       cell: `${sh.name}!${a1(c.r, c.c)}`,
       text: wb.getSheetByName(sh.name).getRange(c.r, c.c).getDisplayValue(),
@@ -685,6 +914,7 @@ export function createGrid(container, model, { readOnly = false, onAmbiguousNumb
       calcListener.dispose();
       calcStartListener.dispose();
       undoSub.unsubscribe();
+      markSub.unsubscribe();
       calcEndListener.dispose();
       for (const wake of [...calcWaiters]) wake();
       endUndoBatch();

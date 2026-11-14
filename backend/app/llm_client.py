@@ -10,15 +10,18 @@ import urllib.error
 import urllib.request
 
 LLM_URL = os.environ.get("LLM_URL", "http://llm:8100")
-TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "30"))
+# Phải lớn hơn hạn chờ OpenAI của llm (45 giây) cộng thời gian llm xử lý, để api không cắt trước llm. Xem backend/tests/test_timeouts.py.
+TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "60"))
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 _CODE_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ_")
 
 
 class LlmFailed(Exception):
-    def __init__(self, code: str):
+    def __init__(self, code: str, not_sent: bool = False):
         super().__init__(code)
         self.code = code
+        # llm báo chắc chắn chưa gửi byte nào tới nhà cung cấp (chưa mở được kết nối qua egress): không tính tiền (PM 14/11).
+        self.not_sent = not_sent
 
 
 def _count(v: object) -> int | None:
@@ -52,7 +55,7 @@ def call(system: str, prompt: str, response_schema: dict, schema_name: str, max_
         code = body.get("code")
         # Chỉ nhận mã dạng CHAT_..., không chuyển tiếp chữ khác.
         ok_code = isinstance(code, str) and code.startswith("CHAT_") and len(code) <= 40 and set(code) <= _CODE_CHARS
-        raise LlmFailed(code if ok_code else "CHAT_MODEL_FAILED")
+        raise LlmFailed(code if ok_code else "CHAT_MODEL_FAILED", not_sent=body.get("not_sent") is True)
     if not isinstance(body.get("text"), str):
         raise LlmFailed("CHAT_MODEL_FAILED")
     return {

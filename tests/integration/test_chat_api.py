@@ -141,11 +141,23 @@ def _spend(doc: dict, day: str, cost: float) -> None:
         f"VALUES ('{doc['document_id']}', now(), '{day}', 'ask', 1, 0, {cost}, {cost})")
 
 
-def test_vuot_tran_ngay_thi_khong_goi_model(doc):
+def test_vuot_tran_ngay_thi_bao_ngay_o_xem_truoc(doc):
+    """PO/BA lượt 2 (ca 1a): báo trần ngay ở bước xem trước, trước khi người dùng đọc và bấm đồng ý."""
     _spend(doc, _today_vn(), 0.999)
-    status, _, body, _ = turn(doc, "Sửa giúp tôi")
+    status, _, body = preview(doc, "Sửa giúp tôi")
     assert status == 429 and body["code"] == "CHAT_DAY_LIMIT" and "0 giờ ngày mai (giờ Việt Nam)" in body["message"]
+    assert "preview_id" not in body and "prompt" not in body
     assert sql("SELECT count(*) FROM chat_call") == "1"  # không có lượt gọi mới
+
+
+def test_tien_tieu_them_giua_xem_truoc_va_gui_thi_buoc_gui_van_chan(doc):
+    """Giữa xem trước và gửi, lượt khác có thể tiêu tiền: bước gửi vẫn kiểm lại trần, không gọi model."""
+    status, raw, body = preview(doc, "Sửa giúp tôi")
+    assert status == 200, raw[:300]
+    _spend(doc, _today_vn(), 0.999)
+    status, _, sent = post(f"/api/chat/{body['preview_id']}/send")
+    assert status == 429 and sent["code"] == "CHAT_DAY_LIMIT"
+    assert sql("SELECT count(*) FROM chat_call") == "1"
 
 
 def test_tien_ngay_hom_qua_khong_tinh_vao_hom_nay(doc):
@@ -196,6 +208,8 @@ def test_luu_ghi_ro_o_do_ai_sua(doc):
     _, _, versions = request("GET", f"/api/documents/{did}/versions")
     rows = {v["version"]: v for v in json.loads(versions)}
     assert rows[body["version"]]["ai_cells"] == 1 and rows[doc["version"]]["ai_cells"] == 0
+    # K3 (5.4): lịch sử nêu ô nào, chỉ địa chỉ ô.
+    assert rows[body["version"]]["ai_cell_list"] == ["KQ_QC_Thang!B10"] and rows[doc["version"]]["ai_cell_list"] == []
     assert sql(f"SELECT by_ai FROM cell_edit WHERE document_id = '{did}' AND cell = 'B10'") == "t"
 
 

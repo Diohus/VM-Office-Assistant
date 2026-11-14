@@ -1,7 +1,9 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ApiError, applyFill, cancelFill, createFill, editsTooMany, MAX_EDITS, exportPdf, exportUrl, fetchDocument, fetchFill, fetchGrid, fetchOpenFills, fetchRecent, fetchVersions, openFill, restoreVersion, saveVersion, uploadDocument, uploadSource } from './api.js';
 import texts from '@vmai-texts';
 import FillPanel from './fill/FillPanel.jsx';
+import ChatPanel from './chat/ChatPanel.jsx';
+import { chatText, historyLine } from './chat/chatModel.js';
 import { toDecisions } from './fill/fillModel.js';
 import { createGrid } from './grid/index.js';
 import { ambiguousNumberNotice, decimalSwappedNotice, documentNotices, hiddenDigitsNotice, EXPORT_UNCHANGED, EXPORT_UNCHANGED_LEGACY, EXPORT_WARNING, lockedCellNotice, mismatchNotice, pastedNotice, pdfMismatchNotice, refusedNotice, SAVE_FAILED_NOTE, savedNotice } from './notices.js';
@@ -105,11 +107,34 @@ export default function App() {
   const [recent, setRecent] = useState([]);
   // Lát 1: lô đang duyệt, ô cần duyệt lại (3.8a), lệnh hủy lúc đang tạo lô (6.1).
   const [fill, setFill] = useState(null);
+  const [chat, setChat] = useState(false); // lát 2: khung chat AI (Q135)
   const [reviewAgain, setReviewAgain] = useState({});
   const fillInputRef = useRef(null);
   const fillAbort = useRef(null);
   const inputRef = useRef(null);
   const hostRef = useRef(null);
+  // R-1021: lưới chỉ được tạo khi React đã gắn .grid-host vào trang. Trước đây chờ một khung hình rồi đọc hostRef: máy nặng thì
+  // React chưa gắn kịp, hostRef còn null, Univer dựng bảng mà không vẽ đâu cả (lưới trắng, đo 7/40 khi tải nặng).
+  // waitHost() trả về .grid-host sau lần commit có nó; useLayoutEffect chạy ngay sau mỗi commit, trước khi trình duyệt vẽ.
+  const hostWaiters = useRef([]);
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host?.isConnected || !hostWaiters.current.length) return;
+    const waiting = hostWaiters.current;
+    hostWaiters.current = [];
+    for (const resolve of waiting) resolve(host);
+  });
+  const waitHost = useCallback(() => {
+    if (hostRef.current?.isConnected) return Promise.resolve(hostRef.current);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        hostWaiters.current = hostWaiters.current.filter((r) => r !== done);
+        reject(new Error('GRID_HOST_MISSING'));
+      }, 10000);
+      const done = (host) => { clearTimeout(timer); resolve(host); };
+      hostWaiters.current.push(done);
+    });
+  }, []);
   const gridRef = useRef(null);
   const docRef = useRef(null);
   const shortcutSave = useRef(null);
@@ -175,8 +200,8 @@ export default function App() {
     setClosed(new Set());
     setDirty(false);
     setNotices([...documentNotices(meta), ...keep]);
-    await new Promise((r) => requestAnimationFrame(r));
-    const grid = createGrid(hostRef.current, model, {
+    const host = await waitHost();
+    const grid = createGrid(host, model, {
       readOnly: oldVersion !== null,
       onAmbiguousNumber: (info) => pushNotice(ambiguousNumberNotice(info)),
       onDecimalSwapped: (info) => pushNotice(decimalSwappedNotice(info)),
@@ -217,7 +242,7 @@ export default function App() {
       }).catch(() => {});
     }
     window.vmGridReady = `${meta.document_id}:${meta.version}:${oldVersion ?? ''}`;
-  }, [pushNotice]);
+  }, [pushNotice, waitHost]);
 
   const run = useCallback(async (work, note = '') => {
     setBusy(true);
@@ -251,7 +276,9 @@ export default function App() {
     }
     // Q124: quá giới hạn thì báo ngay, không gửi đi. Lỗi làm dừng việc tiếp theo (mở file khác...), các sửa còn trên màn hình.
     if (edits.length > MAX_EDITS) throw new ApiError(editsTooMany(edits.length), 'EDITS_TOO_MANY');
-    const meta = await saveVersion(docRef.current.document_id, { base_version: docRef.current.version, author, edits });
+    const edited = new Set(edits.map((e) => `${e.sheet}!${e.cell}`));
+    const aiCells = gridRef.current.aiCells().filter((c) => edited.has(`${c.sheet}!${c.cell}`));
+    const meta = await saveVersion(docRef.current.document_id, { base_version: docRef.current.version, author, edits, ai_cells: aiCells });
     await showGrid(meta, { keep: [savedNotice(meta.version, edits.length)] });
     if (versions) await refreshVersions(meta.document_id);
     return true;
@@ -291,9 +318,19 @@ export default function App() {
       }));
     }
   };
+  // Lát 2 (C10): còn ô AI sửa chưa lưu thì hỏi trước khi Lưu. "Xem lại" thì không lưu.
+  const confirmAi = (then) => {
+    const n = gridRef.current?.aiCells().length ?? 0;
+    if (n) setDialog({ kind: 'chat-save', n, then });
+    else then();
+  };
   const onSave = async () => {
     if (gridRef.current && !(await gridRef.current.commitEditing())) return;
-    askName((author) => run(() => save(author), SAVE_FAILED_NOTE));
+    confirmAi(() => askName((author) => run(() => save(author), SAVE_FAILED_NOTE)));
+  };
+  const onChat = () => {
+    setVersions(null);
+    setChat((v) => !v);
   };
   const openExportWarning = () => setDialog({ kind: 'export', written: Boolean(docRef.current.written) });
   const onExport = () => guard(openExportWarning, { keepsGrid: true });
@@ -303,6 +340,7 @@ export default function App() {
     await showGrid(meta);
   });
   const onVersions = () => {
+    setChat(false);
     if (versions) setVersions(null);
     else run(() => refreshVersions(doc.document_id));
   };
@@ -432,6 +470,11 @@ export default function App() {
               <Icon d="M4 5h7v14H4zM13 12h7M17 8l4 4-4 4" />Điền từ file
             </button>
           )}
+          {canEdit && (
+            <button type="button" className={`side-btn ${chat ? 'on' : ''}`} onClick={onChat} data-testid="chat-button">
+              <Icon d="M4 5h16v11H9l-5 4z" />Chat AI
+            </button>
+          )}
           {doc && (
             <button type="button" className="side-btn" onClick={onVersions}>
               <Icon d="M12 7v5l3 2M4 12a8 8 0 1 0 2.5-5.8M4 4v4h4" />Phiên bản
@@ -499,7 +542,11 @@ export default function App() {
             onClose={() => setFill(null)} onGo={(a1) => gridRef.current?.goTo(fill.batch.changes[0]?.target.sheet, a1)}
             onDrop={(pending) => setDialog({ kind: 'fill-drop', pending })} />
         )}
-        {versions && doc && !fill && (
+        {chat && canEdit && !fill && (
+          <ChatPanel doc={doc} gridRef={gridRef} texts={texts} undoTick={`${undoRedo.undos}:${undoRedo.redos}:${dirty}`}
+            onClose={() => setChat(false)} onOpenFill={onFill} />
+        )}
+        {versions && doc && !fill && !chat && (
           <aside className="versions" aria-label="Phiên bản" data-testid="versions">
             <h2>Phiên bản</h2>
             <ul>
@@ -508,6 +555,7 @@ export default function App() {
                   <div className="v-title">Bản {v.version}{v.version === doc.version ? ' (mới nhất)' : ''}</div>
                   <div className="v-meta">{new Date(v.created_at).toLocaleString('vi-VN')}{v.author ? ` · ${v.author}` : ''}</div>
                   <div className="v-meta">{v.summary}</div>
+                  {historyLine(texts, v.ai_cell_list) && <div className="v-meta" data-testid="v-ai-cells">{historyLine(texts, v.ai_cell_list)}</div>}
                   {v.version !== doc.version && (
                     <div className="v-actions">
                       <button type="button" className="btn-plain" onClick={() => viewOld(v.version)}>Xem</button>
@@ -525,7 +573,7 @@ export default function App() {
         <Dialog
           title="Có sửa chưa lưu"
           actions={[
-            { label: 'Lưu', primary: true, onClick: () => { const { next } = dialog; setDialog(null); askName((a) => run(async () => { await save(a); next(); }, SAVE_FAILED_NOTE)); } },
+            { label: 'Lưu', primary: true, onClick: () => { const { next } = dialog; setDialog(null); confirmAi(() => askName((a) => run(async () => { await save(a); next(); }, SAVE_FAILED_NOTE))); } },
             { label: 'Bỏ thay đổi', onClick: () => {
               const { next, keepsGrid } = dialog;
               setDialog(null);
@@ -536,6 +584,17 @@ export default function App() {
           ]}
         >
           Anh/chị có thay đổi chưa lưu. Lưu thành bản mới, bỏ các thay đổi này, hay ở lại để sửa tiếp?
+        </Dialog>
+      )}
+      {dialog?.kind === 'chat-save' && (
+        <Dialog
+          title={chatText(texts, 'CHAT_UI_SAVE_BUTTON')}
+          actions={[
+            { label: chatText(texts, 'CHAT_UI_SAVE_BUTTON'), primary: true, onClick: () => { const { then } = dialog; setDialog(null); then(); } },
+            { label: chatText(texts, 'CHAT_UI_REVIEW_BUTTON'), onClick: () => setDialog(null) },
+          ]}
+        >
+          {chatText(texts, 'CHAT_UI_SAVE_CONFIRM', { N: dialog.n })}
         </Dialog>
       )}
       {dialog?.kind === 'name' && (

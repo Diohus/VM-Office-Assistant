@@ -18,5 +18,5 @@ docker restart "$VM_PROJECT-fakeai-1" > /dev/null
 PYTHONIOENCODING=utf8 PYTHONPATH="workers/reader${SEP}vmai/src" "$PY" -m pytest workers/reader/tests -q -W ignore -p no:cacheprovider
 PYTHONIOENCODING=utf8 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="workers/llm${SEP}workers/egress${SEP}backend" "$PY" -m pytest workers/llm/tests workers/egress/tests backend/tests -q -W ignore -p no:cacheprovider
 [ -d tests/integration/browser/node_modules ] || (cd tests/integration/browser && npm ci --ignore-scripts --no-audit --no-fund > /dev/null)
-(cd tests/integration/browser && node --test typed_number.test.mjs fill_model.test.mjs > /dev/null)
+(cd tests/integration/browser && node --test typed_number.test.mjs fill_model.test.mjs chat_model.test.mjs > /dev/null)
 PYTHONIOENCODING=utf8 PYTHONDONTWRITEBYTECODE=1 "$PY" -m pytest tests/integration -q -W ignore -p no:cacheprovider "$@"

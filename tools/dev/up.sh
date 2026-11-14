@@ -33,7 +33,20 @@ fi
 : > .local/llm_none.env
 if [ -z "${LLM_SECRET_FILE:-}" ]; then
   if [ -f .env ]; then LLM_SECRET_FILE=.env; else LLM_SECRET_FILE=.local/llm_none.env; fi
+  # Lối tắt Desktop (mo_app.cmd) chỉ đọc .local/compose.env. Ghi lại đường dẫn vừa chọn (không phải nội dung) để hai đường mở app
+  # dùng cùng một file key. Chỉ ghi cho app thật và khi chính script này chọn: bộ test (VM_PROJECT khác, khóa mồi do người gọi
+  # đặt) không bao giờ ghi, vì compose.env dùng chung với app thật.
+  if [ "${VM_PROJECT:-vm-office}" = "vm-office" ]; then
+    umask 077
+    grep -v '^LLM_SECRET_FILE=' .local/compose.env > .local/compose.env.tmp || :
+    printf 'LLM_SECRET_FILE=%s\n' "$LLM_SECRET_FILE" >> .local/compose.env.tmp
+    mv .local/compose.env.tmp .local/compose.env
+  fi
 fi
 export LLM_SECRET_FILE
-docker compose -p "${VM_PROJECT:-vm-office}" --env-file .local/compose.env up -d --build --wait "$@"
+# R-1020: từ Docker 29.8 (Compose v5, buildx bake), thư mục dự án tương đối làm bake ghi Dockerfile thành "workers\egress\Dockerfile"
+# rồi đòi quyền --allow=fs.read, nên không dựng được image. Đưa thư mục dự án tuyệt đối (dạng D:/... trên Git Bash) thì bake
+# thấy Dockerfile nằm trong ngữ cảnh dựng, không cần thêm quyền. Không tắt kiểm quyền của bake.
+ROOT_DIR=$(pwd -W 2>/dev/null || pwd)
+docker compose -p "${VM_PROJECT:-vm-office}" --project-directory "$ROOT_DIR" --env-file .local/compose.env up -d --build --wait "$@"
 echo "App: http://127.0.0.1:${WEB_PORT:-8088}"

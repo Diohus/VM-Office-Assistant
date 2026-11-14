@@ -34,6 +34,32 @@ def test_docker_dang_chay_thi_mo_duoc_bo_rieng():
     assert "http://127.0.0.1:8089" in proc.stdout and not technical(proc.stdout)
 
 
+def _llm() -> tuple[str, str]:
+    """Mã container llm của bộ test và file gắn vào /run/secrets/llm_env (đường dẫn, không đọc nội dung)."""
+    fmt = '{{.Id}}|{{range .Mounts}}{{if eq .Destination "/run/secrets/llm_env"}}{{.Source}}{{end}}{{end}}'
+    out = subprocess.run(["docker", "inspect", "-f", fmt, f"{PROJECT}-llm-1"], capture_output=True, text=True, timeout=60, check=True).stdout.strip()
+    container, source = out.split("|", 1)
+    return container, source
+
+
+def test_loi_tat_khong_tao_lai_llm_va_giu_khoa(monkeypatch):
+    """Q135 (PM 13/11): run.sh dựng bộ test bằng up.sh với khóa mồi. Lối tắt không có biến LLM_SECRET_FILE (như trên máy Owner),
+    nên compose thấy đường dẫn file key khác. Đo 13/11: compose không tạo lại container khi chỉ đường dẫn secret khác, nên llm
+    giữ nguyên container và vẫn gắn khóa mồi. Nếu một bản Docker sau này đổi cách đó, test này báo trước khi app thật mất key."""
+    before = _llm()
+    assert "llm_canary" in before[1], "bộ test phải chạy với khóa mồi (run.sh)"
+    monkeypatch.delenv("LLM_SECRET_FILE", raising=False)
+    proc = run()
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _llm() == before, "lối tắt đã tạo lại llm hoặc đổi file key"
+
+
+def test_chay_bo_test_khong_ghi_khoa_moi_vao_compose_env():
+    """PM chọn (A): .local/compose.env dùng chung với app thật; bộ test không bao giờ ghi đường dẫn khóa mồi vào đó."""
+    text = (ROOT / ".local" / "compose.env").read_text(encoding="utf8")
+    assert "llm_canary" not in text and "tests/integration" not in text
+
+
 def test_docker_khong_len_thi_bao_tieng_thuong(tmp_path):
     fake = tmp_path / "docker.cmd"
     fake.write_text("@exit /b 1\r\n", encoding="ascii")

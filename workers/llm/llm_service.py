@@ -10,6 +10,7 @@ Model cố định gpt-6-luna (Q85, Q135). Đổi model phải có quyết đị
 from __future__ import annotations
 
 import hashlib
+import http.client
 import http.server
 import json
 import logging
@@ -26,7 +27,8 @@ KEY_NAME = "OPENAI_API_KEY"
 BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 PROXY = os.environ.get("LLM_PROXY", "http://egress:3128")
 CA_FILE = os.environ.get("LLM_CA_FILE", "/opt/llm/ca.pem")
-UPSTREAM_TIMEOUT_SECONDS = float(os.environ.get("LLM_UPSTREAM_TIMEOUT_SECONDS", "25"))
+# PM 14/11: ghi cả cột (28 công thức) đo 13-23 giây, 25 giây quá sát. Thứ tự hạn chờ: backend/tests/test_timeouts.py.
+UPSTREAM_TIMEOUT_SECONDS = float(os.environ.get("LLM_UPSTREAM_TIMEOUT_SECONDS", "45"))
 MAX_REQUEST_BYTES = 1024 * 1024
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_PROMPT_CHARS = 200_000
@@ -38,9 +40,11 @@ log = logging.getLogger("llm")
 class CallFailed(Exception):
     """Lỗi có mã. Không bao giờ mang chữ lỗi gốc, header hay nội dung."""
 
-    def __init__(self, code: str):
+    def __init__(self, code: str, not_sent: bool = False):
         super().__init__(code)
         self.code = code
+        # PM 14/11: True khi chắc chắn chưa gửi byte nào tới nhà cung cấp (chưa mở xong kết nối qua egress). api ghi tiền 0.
+        self.not_sent = not_sent
 
 
 def read_key(path: pathlib.Path | None = None) -> str:
@@ -121,12 +125,35 @@ def parse_response(body: dict) -> dict:
     }
 
 
+class _TrackedHTTPSHandler(urllib.request.HTTPSHandler):
+    """Như HTTPSHandler, nhưng đánh dấu request.vm_connected = True khi kết nối (TCP, đường hầm qua egress, TLS) đã mở xong.
+    Lỗi xảy ra khi cờ này chưa bật thì chắc chắn chưa gửi byte nào của yêu cầu tới nhà cung cấp."""
+
+    def https_open(self, req):
+        def connection(*args, **kwargs):
+            conn = http.client.HTTPSConnection(*args, **kwargs)
+            connect = conn.connect
+
+            def tracked() -> None:
+                connect()
+                req.vm_connected = True
+
+            conn.connect = tracked
+            return conn
+        return self.do_open(connection, req, context=self._context)
+
+
 def _opener() -> urllib.request.OpenerDirector:
     context = ssl.create_default_context(cafile=CA_FILE if os.path.exists(CA_FILE) else None)
-    handlers: list = [urllib.request.HTTPSHandler(context=context)]
+    handlers: list = [_TrackedHTTPSHandler(context=context)]
     # Chỉ https đi qua egress. http chỉ dùng cho máy giả trong bộ test (LLM_BASE_URL do compose test đặt).
     handlers.append(urllib.request.ProxyHandler({"https": PROXY} if PROXY else {}))
     return urllib.request.build_opener(*handlers)
+
+
+def _not_sent(request: urllib.request.Request) -> bool:
+    """Chỉ đường https qua _TrackedHTTPSHandler mới biết chắc. http (máy giả của bộ test) thì coi như có thể đã gửi."""
+    return request.type == "https" and not getattr(request, "vm_connected", False)
 
 
 def call(req: dict, opener: urllib.request.OpenerDirector | None = None) -> dict:
@@ -145,10 +172,10 @@ def call(req: dict, opener: urllib.request.OpenerDirector | None = None) -> dict
         exc.close()
         raise CallFailed({401: "CHAT_MODEL_KEY_REJECTED", 403: "CHAT_MODEL_KEY_REJECTED", 429: "CHAT_MODEL_BUSY"}.get(exc.code, "CHAT_MODEL_UNAVAILABLE")) from None
     except TimeoutError:
-        raise CallFailed("CHAT_MODEL_TIMEOUT") from None
+        raise CallFailed("CHAT_MODEL_TIMEOUT", not_sent=_not_sent(request)) from None
     except (urllib.error.URLError, OSError) as exc:
         timeout = isinstance(getattr(exc, "reason", None), TimeoutError)
-        raise CallFailed("CHAT_MODEL_TIMEOUT" if timeout else "CHAT_MODEL_UNAVAILABLE") from None
+        raise CallFailed("CHAT_MODEL_TIMEOUT" if timeout else "CHAT_MODEL_UNAVAILABLE", not_sent=_not_sent(request)) from None
     finally:
         request.headers.clear()
         request.unredirected_hdrs.clear()
@@ -191,7 +218,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send(404, {"ok": False, "code": "NOT_FOUND"})
             return
         started = time.perf_counter()
-        code = "OK"
+        code, not_sent = "OK", False
         try:
             length = int(self.headers.get("Content-Length") or 0)
             if not 0 < length <= MAX_REQUEST_BYTES:
@@ -207,12 +234,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             log.info("call ok prompt=%s in=%s out=%s ms=%s", out["prompt_sha256"][:12], out["input_tokens"], out["output_tokens"], out["latency_ms"])
             return
         except CallFailed as exc:
-            code = exc.code
+            code, not_sent = exc.code, exc.not_sent
         except Exception as exc:  # noqa: BLE001 - lỗi lạ: chỉ ghi tên loại lỗi, không ghi chữ lỗi
             code = "CHAT_MODEL_UNAVAILABLE"
             log.warning("call error type=%s", type(exc).__name__)
-        self._send(200 if code != "CHAT_BAD_REQUEST" else 400, {"ok": False, "code": code})
-        log.info("call failed code=%s ms=%s", code, int((time.perf_counter() - started) * 1000))
+        self._send(200 if code != "CHAT_BAD_REQUEST" else 400, {"ok": False, "code": code, "not_sent": not_sent})
+        log.info("call failed code=%s not_sent=%s ms=%s", code, not_sent, int((time.perf_counter() - started) * 1000))
 
 
 def main() -> None:

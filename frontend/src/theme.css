@@ -101,3 +101,33 @@ body { font-family: "Segoe UI", Arial, sans-serif; font-size: 14px; color: var(-
 .progress { flex: none; height: 4px; background: var(--navy-light); overflow: hidden; }
 .progress::after { content: ""; display: block; height: 100%; width: 35%; background: var(--navy-2); animation: slide 1.2s infinite linear; }
 @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+
+/* Lát 2: khung chat AI (Q135). Dấu "AI sửa" là nền #E9DCF7 trên lưới (PM chốt 12/11), có chú thích bằng chữ. */
+.side-btn.on { background: #d9e0ea; }
+.chat { width: 340px; flex: none; border-left: 1px solid var(--border); display: flex; flex-direction: column; padding: 8px 12px; gap: 6px; min-height: 0; }
+.chat-head { display: flex; align-items: center; justify-content: space-between; }
+.chat-head h2 { font-size: 16px; margin: 4px 0; color: var(--navy); }
+.chat-trial { background: #fbdddd; border-radius: 4px; padding: 4px 8px; font-weight: 600; }
+.chat-legend { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.chat-swatch { width: 16px; height: 16px; background: #e9dcf7; border: 1px solid #b9a3d6; border-radius: 3px; flex: none; }
+.chat-turns { flex: 1; overflow: auto; margin: 0; padding: 0; list-style: none; min-height: 0; }
+.chat-turn { padding: 8px 0; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
+.chat-you { align-self: flex-end; background: var(--notice-bg); border-radius: 6px; padding: 4px 8px; max-width: 90%; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-info { overflow-wrap: anywhere; }
+.chat-error { background: #fdf3e0; border-radius: 4px; padding: 4px 8px; }
+.chat-hint { font-size: 13px; color: #555; }
+.chat-summary, .chat-skipped, .chat-already { margin: 0; padding-left: 18px; font-size: 13px; }
+.chat-already { color: #555; }
+.chat-outside { border-left: 3px solid #c58a00; padding-left: 6px; display: flex; flex-direction: column; gap: 4px; }
+.chat-warn { background: #fdf3e0; border-radius: 4px; padding: 4px 8px; font-size: 13px; }
+.chat-undo { align-self: flex-start; }
+.chat-model { font-size: 13px; color: #444; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* O1: khung xem trước co lại theo chỗ trống; chỉ phần thân cuộn, mã băm và hàng nút luôn nằm trong khung. */
+.chat-preview { flex: 0 1 auto; max-height: 75%; min-height: 150px; overflow: hidden; border: 1px solid var(--navy); border-radius: 4px; padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; }
+.chat-preview-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.chat-preview > .chat-hint, .chat-preview > .chat-actions { flex: none; }
+.chat-sheets { margin: 0; padding-left: 18px; }
+.chat-prompt { margin: 0; font-size: 12px; background: var(--notice-bg); padding: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-actions, .chat-wait { display: flex; gap: 8px; align-items: center; flex: none; }
+.chat-input { display: flex; flex-direction: column; gap: 6px; flex: none; }
+.chat-input textarea { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }

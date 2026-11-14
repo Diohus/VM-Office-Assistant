@@ -153,7 +153,9 @@ def _first_sha(document_id: uuid.UUID) -> str:
 
 def _version_row(row: dict) -> dict:
     return {"version": row["version"], "created_at": row["created_at"].isoformat(), "author": row["author"], "summary": row["summary"], "restored_from": row["restored_from"],
-            "ai_cells": len((row.get("meta") or {}).get("ai_cells", []))}
+            "ai_cells": len((row.get("meta") or {}).get("ai_cells", [])),
+            # K3 (5.4): lịch sử bản nêu ô nào do AI sửa qua chat ("sheet!A1"), không chỉ số ô. Chỉ địa chỉ ô, không có giá trị.
+            "ai_cell_list": list((row.get("meta") or {}).get("ai_cells", []))}
 
 
 @app.get("/api/health")
@@ -538,6 +540,8 @@ class ChatSheetIn(BaseModel):
     region: str = Field(max_length=32)
     cells: list[ChatCellIn] = Field(max_length=3000)
     merges: list[str] = Field(default_factory=list, max_length=3000)
+    # ChatEditPlan 0.2 (N2): vùng chỉ để đọc chứa region (tiêu đề, cột Ngày). vmai kiểm và chặn ghi ngoài region.
+    context_region: str | None = Field(default=None, max_length=32)
 
 
 class ChatPreviewRequest(BaseModel):
@@ -558,6 +562,10 @@ def chat_preview(document_id: str, body: ChatPreviewRequest):
     _find(document_id, body.base_version)
     request = body.model_dump()
     request["base_version"] = str(body.base_version)
+    # context_region chỉ chuyển khi có (ChatSheet của vmai cấm trường lạ; trình duyệt không gửi thì giữ đúng như 0.1).
+    for sheet in request["sheets"]:
+        if sheet.get("context_region") is None:
+            sheet.pop("context_region", None)
     try:
         prepared = reader_client.chat_prepare(request)
     except reader_client.ChatRejected as exc:
@@ -565,6 +573,12 @@ def chat_preview(document_id: str, body: ChatPreviewRequest):
         return _problem(422, exc.code, _INVALID, items=exc.items)
     except reader_client.ReaderUnavailable:
         return _problem(503, "READER_UNAVAILABLE", _BUSY)
+    # Trần lượt, trần ngày: báo ngay ở bước xem trước, cùng mã và câu như bước gửi. Không tạo bản xem trước.
+    settings = chat.load_settings()
+    try:
+        chat.TURNS.peek(prepared["estimated_cost_usd"], db.chat_spent(chat.vn_day(settings.now())), settings)
+    except chat.BudgetRefused as exc:
+        return _chat_problem(_CHAT_STATUS.get(exc.code, 422), exc.code)
     preview_id, item = chat.PREVIEWS.put(key, body.base_version, prepared)
     return {
         "preview_id": preview_id,
@@ -609,7 +623,7 @@ def chat_send(preview_id: str):
         try:
             out = llm_client.call(prepared["system"], prepared["prompt"], prepared["response_schema"], prepared["schema_name"], prepared["max_output_tokens"])
         except llm_client.LlmFailed as exc:
-            _record(item, at, "model_error", exc.code, chat.cost_of_failure(exc.code, estimated))
+            _record(item, at, "model_error", exc.code, chat.cost_of_failure(exc.code, estimated, exc.not_sent))
             return _chat_problem(502, exc.code, "CHAT_MODEL")
         # LlmCall của vmai không có reasoning_tokens, prompt_sha256 (extra=forbid).
         llm_call = {"purpose": "chat_edit", "provider": "openai", "model": out["model"] or "gpt-6-luna", "request_id": out["request_id"],

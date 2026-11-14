@@ -100,3 +100,48 @@ def test_goi_dat_key_vao_header_va_ket_qua_khong_co_key(secret):
     out = s.call(REQ, opener)
     assert opener.seen["Authorization"] == f"Bearer {KEY}"
     assert KEY not in json.dumps(out)
+
+
+# PM 14/11: lỗi khi CHƯA mở xong kết nối tới nhà cung cấp (egress không resolve, không nối được) thì not_sent, api ghi tiền 0.
+class _ConnectedThenFails(_Opener):
+    """Như đã mở xong kết nối rồi mới hỏng (đã gửi yêu cầu): có thể bị tính tiền."""
+
+    def open(self, request, timeout):
+        request.vm_connected = True
+        return super().open(request, timeout)
+
+
+def test_loi_truoc_khi_ket_noi_la_chua_gui(secret):
+    with pytest.raises(s.CallFailed) as err:
+        s.call(REQ, _Opener(urllib.error.URLError(OSError("Tunnel connection failed: 502 Bad Gateway"))))
+    assert err.value.code == "CHAT_MODEL_UNAVAILABLE" and err.value.not_sent is True
+
+
+@pytest.mark.parametrize("exc,code", [(TimeoutError(), "CHAT_MODEL_TIMEOUT"), (urllib.error.URLError(ConnectionResetError()), "CHAT_MODEL_UNAVAILABLE")])
+def test_loi_sau_khi_ket_noi_co_the_da_tinh_tien(secret, exc, code):
+    with pytest.raises(s.CallFailed) as err:
+        s.call(REQ, _ConnectedThenFails(exc))
+    assert err.value.code == code and err.value.not_sent is False
+
+
+def test_proxy_tu_choi_connect_qua_handler_that_la_chua_gui(secret, monkeypatch):
+    """Chạy thật _TrackedHTTPSHandler qua một proxy nội bộ trả 502 cho CONNECT, như egress khi không nối được ra ngoài."""
+    import socket
+    import threading
+
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+
+    def serve():
+        conn, _ = srv.accept()
+        conn.recv(4096)
+        conn.sendall(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
+        conn.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    monkeypatch.setattr(s, "PROXY", f"http://127.0.0.1:{srv.getsockname()[1]}")
+    with pytest.raises(s.CallFailed) as err:
+        s.call(REQ)
+    srv.close()
+    assert err.value.code == "CHAT_MODEL_UNAVAILABLE" and err.value.not_sent is True

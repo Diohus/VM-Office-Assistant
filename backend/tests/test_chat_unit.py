@@ -112,3 +112,54 @@ def test_moi_tai_lieu_mot_luot_va_giu_cho_tien():
     turns.start(b, 0.2, 0.5, settings(turn=1.0))
     turns.finish(b)
     turns.start(a, 0.001, 0.0, settings())
+
+
+def test_peek_kiem_tran_khong_giu_cho_tien():
+    """Bước xem trước: cùng mã như bước gửi, tính cả tiền lượt khác đang giữ, nhưng không giữ chỗ và không chặn CHAT_BUSY."""
+    turns = chat.Turns()
+    a, b = uuid.uuid4(), uuid.uuid4()
+    with pytest.raises(chat.BudgetRefused) as err:
+        turns.peek(0.021, 0.0, settings())
+    assert err.value.code == "CHAT_TURN_LIMIT"
+    with pytest.raises(chat.BudgetRefused) as err:
+        turns.peek(None, 0.0, settings())
+    assert err.value.code == "CHAT_NO_PRICE"
+    turns.start(a, 0.4, 0.0, settings(turn=1.0))
+    with pytest.raises(chat.BudgetRefused) as err:
+        turns.peek(0.2, 0.5, settings(turn=1.0))
+    assert err.value.code == "CHAT_DAY_LIMIT"
+    turns.peek(0.001, 0.0, settings(turn=1.0))  # cùng tài liệu đang chờ: xem trước vẫn được, bước gửi mới báo CHAT_BUSY
+    turns.peek(0.001, 0.0, settings(turn=1.0))
+    turns.finish(a)
+    turns.start(b, 0.2, 0.5, settings(turn=1.0))  # peek không giữ chỗ tiền
+
+
+def test_tien_loi_goi_model_chua_gui_thi_bang_0():
+    """PM 14/11: llm báo chưa gửi byte nào thì không tính tiền; lỗi có thể đã gửi thì ghi ước tính xấu nhất."""
+    assert chat.cost_of_failure("CHAT_MODEL_UNAVAILABLE", 0.0034, not_sent=True) == 0.0
+    assert chat.cost_of_failure("CHAT_MODEL_TIMEOUT", 0.0034, not_sent=True) == 0.0
+    assert chat.cost_of_failure("CHAT_MODEL_UNAVAILABLE", 0.0034) == 0.0034
+    assert chat.cost_of_failure("CHAT_MODEL_TIMEOUT", 0.0034, not_sent=False) == 0.0034
+    assert chat.cost_of_failure("CHAT_MODEL_KEY_REJECTED", 0.0034) == 0.0
+
+
+@pytest.mark.parametrize("flag,expected", [(True, True), (False, False), ("true", False), (None, False)])
+def test_llm_client_doc_co_not_sent(monkeypatch, flag, expected):
+    """api chỉ tin not_sent khi llm trả đúng true (bool); mã lỗi người dùng thấy không đổi."""
+    import io
+    import json
+
+    from app import llm_client
+
+    body = {"ok": False, "code": "CHAT_MODEL_UNAVAILABLE"}
+    if flag is not None:
+        body["not_sent"] = flag
+
+    class _Opener:
+        def open(self, request, timeout):
+            return io.BytesIO(json.dumps(body).encode())
+
+    monkeypatch.setattr(llm_client.urllib.request, "build_opener", lambda *a: _Opener())
+    with pytest.raises(llm_client.LlmFailed) as err:
+        llm_client.call("s", "p", {}, "chat_edit", 100)
+    assert err.value.code == "CHAT_MODEL_UNAVAILABLE" and err.value.not_sent is expected
